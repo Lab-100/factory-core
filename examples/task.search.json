@@ -1,0 +1,11 @@
+{
+  "schema": "invr.task/1",
+  "id": "task-search-001",
+  "operator": "HGZ",
+  "domain": "research",
+  "goal": "локальные ИИ агенты",
+  "capabilities": ["web-search"],
+  "inputs": { "topic": "локальные ИИ агенты" },
+  "constraints": { "prefer": "local+free", "allow_region_switch": false },
+  "acceptance": ["получены источники"]
+}

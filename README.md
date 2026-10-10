@@ -70,10 +70,17 @@ python -m factory settings set ui.mode web
 
 # запуск задачи из файла
 python -m factory run examples/task.example.json --dry-run
+python -m factory run examples/task.search.json       # реальный поиск через Lab100
+
+# диагностика и инфраструктура
+python -m factory doctor              # какие исполнители доступны
+python -m factory jobs                # очередь задач
+python -m factory region status       # регион (region-spoof)
+python -m factory region switch --region US
 
 # интерфейсы
 python -m factory ui --mode cli     # текущий
-python -m factory ui --mode web     # дашборд http://127.0.0.1:8787
+python -m factory ui --mode web     # дашборд http://127.0.0.1:8787 (запуск задач, очередь, подтверждения)
 python -m factory ui --mode tray    # трей (нужен pystray)
 ```
 

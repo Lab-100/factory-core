@@ -1,12 +1,23 @@
+# Схема настроек фабрики Lab-100
+# ВНИМАНИЕ: изменения через `factory settings set` перезаписывают файл без комментариев.
 schema = "invr.factory.settings/1"
+
+# Активный профиль доменов (наложения поверх config/domains.toml)
 active_profile = "default"
+
+# Каталог результатов и единый журнал
 catalog_dir = "catalog"
 ledger_path = "state/ledger.jsonl"
+
+# Файлы конфигурации (относительно корня репозитория)
 domains_file = "config/domains.toml"
 profiles_dir = "config/profiles"
+
+# Проверять доступность исполнителей перед запуском
 healthcheck = true
 
 [ui]
+# Интерфейс: cli | web | tray | all
 mode = "all"
 
 [ui.web]
@@ -14,20 +25,29 @@ host = "127.0.0.1"
 port = 8787
 
 [ui.tray]
+# Путь к иконке; пусто — иконка по умолчанию
 icon = ""
 
 [automation]
+# Автоматизация: auto | semi
+#   auto — полная автоматика
+#   semi — полуавтомат, подтверждение на контрольных точках
 mode = "auto"
 
 [automation.semi]
+# Шаги, требующие подтверждения в режиме semi.
+# Пустой список — подтверждать каждый шаг.
 checkpoints = ["scrape", "write", "cloud"]
 
 [adapters]
+# Управление внешними исполнителями (пути/включение)
 lab100_enabled = true
-lab100_dir = ""
+lab100_dir = ""          # каталог репозитория Lab100; пусто — ищем рядом (Lab100/)
+lab100_python = ""       # интерпретатор для Lab100; пусто — текущий python
+lab100_cmd = ""          # переопределить команду, напр. "lab100" (если установлен)
 invr_enabled = true
-invr_root = ""
+invr_root = ""           # корень INVR-Tools; пусто — env INVR_TOOLS_ROOT / ~/.devstation/tools
 llm_local_enabled = true
 ollama_host = "http://127.0.0.1:11434"
 region_enabled = true
-region_repo = ""
+region_repo = ""         # каталог region-spoof; пусто — env REGION_SPOOF_DIR / рядом

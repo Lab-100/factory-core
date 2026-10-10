@@ -6,11 +6,11 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import tomlw
+from . import tomlpatch, tomlw
 from .paths import repo_root
 
 
@@ -40,6 +40,7 @@ def _coerce(value: Any) -> Any:
 class Settings:
     path: Path
     data: dict
+    _pending: list = field(default_factory=list)
 
     def get(self, dotted: str, default: Any = None) -> Any:
         current: Any = self.data
@@ -58,12 +59,22 @@ class Settings:
                 nxt = {}
                 current[part] = nxt
             current = nxt
-        current[parts[-1]] = _coerce(value)
-        return current[parts[-1]]
+        coerced = _coerce(value)
+        current[parts[-1]] = coerced
+        self._pending = [item for item in self._pending if item[0] != dotted]
+        self._pending.append((dotted, coerced))
+        return coerced
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(tomlw.dumps(self.data), encoding="utf-8")
+        if not self.path.exists():
+            self.path.write_text(tomlw.dumps(self.data), encoding="utf-8")
+            self._pending.clear()
+            return
+        for dotted, value in self._pending:
+            tomlpatch.apply(self.path, dotted, value)
+        self.data = tomllib.loads(self.path.read_text(encoding="utf-8"))
+        self._pending.clear()
 
     # Удобные аксессоры
     @property

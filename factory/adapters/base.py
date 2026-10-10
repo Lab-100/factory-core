@@ -33,5 +33,9 @@ class Adapter:
     def available(self) -> bool:  # pragma: no cover - переопределяется
         return True
 
+    def health(self) -> dict:
+        """Диагностика для `factory doctor` (быстрая, без длинных вызовов)."""
+        return {"adapter": self.name, "available": self.available()}
+
     def run(self, action: str, params: dict, dry_run: bool = False) -> StepResult:  # pragma: no cover
         raise NotImplementedError

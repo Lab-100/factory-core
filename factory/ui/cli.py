@@ -6,30 +6,11 @@ import json
 import sys
 from pathlib import Path
 
+from .. import regionlib
+from ..context import build_context
 from ..dispatch import Dispatcher
-from ..domains import DomainRegistry
-from ..ledger import Ledger
-from ..paths import repo_root
-from ..settings import load as load_settings
+from ..doctor import run_doctor, summarize
 from ..task import Task
-
-
-def build_context():
-    root = repo_root()
-    settings = load_settings(root / "config" / "settings.toml")
-    domains_file = root / str(settings.get("domains_file", "config/domains.toml"))
-    profiles_dir = root / str(settings.get("profiles_dir", "config/profiles"))
-    active = str(settings.get("active_profile", "default"))
-    overlays = []
-    profile = profiles_dir / f"{active}.toml"
-    if profile.exists():
-        overlays.append(profile)
-    runtime = profiles_dir / "_runtime.toml"
-    if runtime.exists():
-        overlays.append(runtime)
-    registry = DomainRegistry(domains_file, overlays)
-    ledger = Ledger(root / str(settings.get("ledger_path", "state/ledger.jsonl")))
-    return root, settings, registry, ledger
 
 
 def _cmd_status(args) -> int:
@@ -127,6 +108,70 @@ def _cmd_ui(args) -> int:
     return 0
 
 
+def _cmd_doctor(args) -> int:
+    """Диагностика: какие исполнители и зависимости доступны."""
+    _, settings, _, _ = build_context()
+    rows = run_doctor(settings)
+    for row in rows:
+        mark = "[ok]" if row.get("available") else "[--]"
+        print(f"{mark} {row.get('adapter')}")
+        for key, value in row.items():
+            if key in ("adapter", "available") or value in (None, [], {}, ""):
+                continue
+            print(f"      {key}: {value}")
+    ready, total = summarize(rows)
+    print(f"\nГотово адаптеров: {ready}/{total}")
+    if ready < total:
+        print("Подсказка: адаптеры ищут свои репозитории рядом с factory-core "
+              "(Lab100, region-spoof) или по переменным окружения "
+              "(INVR_TOOLS_ROOT, LAB100_DIR, REGION_SPOOF_DIR).")
+    return 0 if ready else 1
+
+
+def _cmd_region(args) -> int:
+    """Управление регионом через region-spoof (протокол см. docs/REGION_PROTOCOL.md)."""
+    _, settings, _, _ = build_context()
+    repo = regionlib.find_repo(settings)
+    if repo is None:
+        print("region-spoof не найден (adapters.region_repo / REGION_SPOOF_DIR / рядом с factory-core)")
+        return 1
+    if args.action in ("status", None):
+        print(json.dumps(regionlib.status(repo), ensure_ascii=False, indent=2))
+        return 0
+    if args.action == "switch":
+        cli = regionlib.find_cli(repo)
+        if cli:
+            data = regionlib.call_cli(cli, "switch", region=args.region, zone=args.zone)
+        else:
+            data = regionlib.switch(repo, region=args.region, zone=args.zone)
+            data["note"] = ("config.json обновлён; region-spoof применит регион при "
+                            "следующем запуске. Для горячего переключения добавьте её CLI "
+                            "(docs/REGION_PROTOCOL.md).")
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print(f"неизвестное действие: {args.action}", file=sys.stderr)
+    return 2
+
+
+def _cmd_jobs(args) -> int:
+    """Список задач в очереди фабрики (state/jobs.jsonl)."""
+    root, _, _, _ = build_context()
+    from ..jobs import JobManager
+
+    manager = JobManager(root)
+    jobs = manager.list()
+    if not jobs:
+        print("Очередь пуста.")
+        return 0
+    for job in jobs:
+        status = job.get("status")
+        goal = str(job.get("goal", ""))[:60]
+        print(f"[{status:<18}] {job.get('id')}  {goal}")
+        if job.get("error"):
+            print(f"      error: {job['error']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description="Фабрика Lab-100")
     sub = parser.add_subparsers(dest="command")
@@ -158,6 +203,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_ui = sub.add_parser("ui", help="запустить интерфейс")
     p_ui.add_argument("--mode", choices=["cli", "web", "tray"], default="cli")
     p_ui.set_defaults(func=_cmd_ui)
+
+    p_doctor = sub.add_parser("doctor", help="диагностика адаптеров и зависимостей")
+    p_doctor.set_defaults(func=_cmd_doctor)
+
+    p_region = sub.add_parser("region", help="регион/доступ через region-spoof")
+    p_region.add_argument("action", nargs="?", default="status", choices=["status", "switch"])
+    p_region.add_argument("--region", default=None, help="код региона, напр. US, DE, NL")
+    p_region.add_argument("--zone", default=None, help="foreign | local")
+    p_region.set_defaults(func=_cmd_region)
+
+    p_jobs = sub.add_parser("jobs", help="очередь задач")
+    p_jobs.set_defaults(func=_cmd_jobs)
 
     return parser
 

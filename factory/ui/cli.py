@@ -172,6 +172,47 @@ def _cmd_jobs(args) -> int:
     return 0
 
 
+def _cmd_auth(args) -> int:
+    """Автовход в GitHub (device flow): login/status/logout."""
+    from ..auth import load_token, login, logout, status
+
+    try:
+        if args.action == "login":
+            resume = Path(args.resume) if args.resume else None
+            result = login(open_browser=not args.no_browser, resume=resume)
+        elif args.action == "status":
+            result = status()
+        elif args.action == "logout":
+            result = logout()
+        else:
+            print(f"неизвестное действие: {args.action}", file=sys.stderr)
+            return 2
+    except RuntimeError as exc:
+        print(f"[factory auth] ошибка: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_release(args) -> int:
+    """Собрать Windows-версию и выпустить GitHub Release автоматически."""
+    from ..release import find_token, release
+
+    token = args.token or find_token()
+    if not token:
+        print("[factory release] нет токена GitHub. Сначала: `factory auth login`",
+              file=sys.stderr)
+        return 2
+    try:
+        result = release(token, tag=args.tag, draft=args.draft,
+                         skip_build=args.no_build, repo=args.repo)
+    except RuntimeError as exc:
+        print(f"[factory release] ошибка: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description="Фабрика Lab-100")
     sub = parser.add_subparsers(dest="command")
@@ -215,6 +256,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_jobs = sub.add_parser("jobs", help="очередь задач")
     p_jobs.set_defaults(func=_cmd_jobs)
+
+    p_auth = sub.add_parser("auth", help="автовход в GitHub (device flow)")
+    p_auth.add_argument("action", nargs="?", default="status",
+                        choices=["login", "status", "logout"])
+    p_auth.add_argument("--no-browser", action="store_true",
+                        help="не открывать браузер автоматически")
+    p_auth.add_argument("--resume", default=None,
+                        help="продолжить уже начатый flow (файл с device_code)")
+    p_auth.set_defaults(func=_cmd_auth)
+
+    p_release = sub.add_parser("release", help="собрать exe/zip и выпустить GitHub Release")
+    p_release.add_argument("--tag", default=None,
+                           help="тег (по умолчанию v<версия из pyproject.toml>)")
+    p_release.add_argument("--draft", action="store_true", help="черновик релиза")
+    p_release.add_argument("--no-build", action="store_true",
+                           help="не пересобирать exe (использовать готовый dist/)")
+    p_release.add_argument("--repo", default="Lab-100/factory-core",
+                           help="репозиторий owner/name")
+    p_release.add_argument("--token", default=None,
+                           help="токен (по умолчанию: GITHUB_TOKEN / state/github.token / gh)")
+    p_release.set_defaults(func=_cmd_release)
 
     return parser
 

@@ -82,7 +82,33 @@ python -m factory region switch --region US
 python -m factory ui --mode cli     # текущий
 python -m factory ui --mode web     # дашборд http://127.0.0.1:8787 (запуск задач, очередь, подтверждения)
 python -m factory ui --mode tray    # трей (нужен pystray)
+
+# автовход в GitHub (device flow: код + автооткрытие браузера, токен → state/github.token)
+python -m factory auth login
+python -m factory auth status        # под какой аккаунт вошли
+python -m factory auth logout
+
+# автоматический релиз: сборка factory.exe → zip → пуш → тег → GitHub Release + ассет
+python -m factory release            # v<версия из pyproject.toml>
+python -m factory release --draft    # черновик
+python -m factory release --no-build # использовать уже собранный dist/ (без PyInstaller)
 ```
+
+## Автовход и релизы
+
+- `factory auth login` — авторизация GitHub через device flow: фабрика сама
+  запрашивает код, открывает браузер и ждёт подтверждения, после чего сохраняет
+  токен в `state/github.token` (каталог `state/` в `.gitignore` — токен не
+  попадает в git). `--resume <файл>` продолжает уже начатую авторизацию.
+- `factory release` — весь конвейер одной командой: сборка `factory.exe`
+  (PyInstaller, при необходимости ставится сам), упаковка
+  `dist/factory-core-win.zip` (exe + конфиги + `install.ps1`/`uninstall.ps1`),
+  пуш ветки `main`, тег `v<версия>`, создание GitHub Release и загрузка
+  архива как ассета. Токен берётся из `GITHUB_TOKEN`, `state/github.token`
+  или `gh auth token`.
+- Windows-установка: распакуйте `factory-core-win.zip` из релиза и запустите
+  `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
+  в PATH и меню «Пуск».
 
 ## Зависимости
 

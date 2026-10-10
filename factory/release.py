@@ -196,21 +196,16 @@ def _api_create_ref(token: str, repo: str, ref: str, sha: str) -> None:
             {"sha": sha, "force": True})
 
 
-def _api_bootstrap(token: str, repo: str, log) -> None:
-    """Пустой репозиторий GitHub не даёт создавать blob'ы, пока нет коммита —
-    создаём стартовый пустой коммит в ветке main."""
-    log("   репозиторий пуст — создаю стартовый коммит")
-    status, tree_data = api("POST", f"{GITHUB_API}/repos/{repo}/git/trees", token, {"tree": []})
-    if status >= 300:
-        raise RuntimeError(f"не удалось создать пустое дерево: {tree_data}")
-    status, commit_data = api("POST", f"{GITHUB_API}/repos/{repo}/git/commits", token, {
+def _api_bootstrap(token: str, repo: str, log, tr) -> None:
+    """Пустой репозиторий GitHub заперт для blobs/trees/commits, пока нет
+    первого коммита. Создаём его через Contents API (PUT файла)."""
+    log(tr("rel.bootstrap"))
+    status, data = api("PUT", f"{GITHUB_API}/repos/{repo}/contents/.factory-bootstrap", token, {
         "message": "Фабрика Lab-100 — начальный коммит",
-        "tree": tree_data["sha"],
-        "parents": [],
+        "content": base64.b64encode(b"factory-core\n").decode("ascii"),
     })
     if status >= 300:
-        raise RuntimeError(f"не удалось создать начальный коммит: {commit_data}")
-    _api_create_ref(token, repo, "heads/main", commit_data["sha"])
+        raise RuntimeError(f"не удалось создать стартовый коммит: {data}")
 
 
 def _api_push(token: str, repo: str, root: Path, log, tr) -> str:
@@ -231,7 +226,7 @@ def _api_push(token: str, repo: str, root: Path, log, tr) -> str:
         }
         status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/blobs", token, payload)
         if status == 409 and "empty" in str(data.get("message", "")).lower():
-            _api_bootstrap(token, repo, log)
+            _api_bootstrap(token, repo, log, tr)
             status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/blobs", token, payload)
         if status >= 300:
             raise RuntimeError(f"не удалось загрузить blob {rel}: {data}")

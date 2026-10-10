@@ -323,7 +323,10 @@ def release(token: str, tag: str | None = None, draft: bool = False, skip_build:
     for asset in release_data.get("assets", []):
         if asset.get("name") == asset_name:
             api("DELETE", f"{GITHUB_API}/repos/{repo}/releases/assets/{asset['id']}", token)
-    upload_url = f"{GITHUB_API}/repos/{repo}/releases/{release_id}/assets?name={urllib.parse.quote(asset_name)}"
+    upload_url = release_data.get("upload_url") or \
+        f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
+    upload_url = upload_url.split("{", 1)[0]
+    upload_url = f"{upload_url}?name={urllib.parse.quote(asset_name)}"
     api_status, asset = api("POST", upload_url, token, zip_path.read_bytes(), content_type="application/zip")
     if api_status >= 400:
         raise RuntimeError(f"не удалось загрузить ассет: {asset}")

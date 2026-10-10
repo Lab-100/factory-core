@@ -9,7 +9,9 @@ Device flow (GitHub device grant):
   - `factory auth status` — проверяет сохранённый токен через GET /user;
   - `factory auth logout` — удаляет токен.
 
-Токен далее используется командой `factory release` автоматически.
+Токен далее используется командой `factory release` автоматически:
+пуш идёт через git-протокол без credential-окон (GIT_TERMINAL_PROMPT=0),
+а при недоступности — через Git Data API.
 """
 from __future__ import annotations
 
@@ -20,6 +22,8 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
+
+from .i18n import make_translator
 
 CLIENT_ID = "178c6fc778ccc68e1d6a"  # приложение GitHub CLI (device flow), scope public_repo
 SCOPE = "public_repo"
@@ -55,6 +59,16 @@ def delete_token() -> bool:
         path.unlink()
         return True
     return False
+
+
+def _tr(translator=None):
+    """Переводчик активного языка (переданный или из настроек)."""
+    if translator is not None:
+        return translator
+    from .paths import repo_root
+    from .settings import load as _load_settings
+
+    return make_translator(_load_settings(repo_root() / "config" / "settings.toml"))
 
 
 def _post_form(url: str, fields: dict) -> dict:
@@ -104,14 +118,14 @@ def _api_get(path: str, token: str) -> dict:
         raise RuntimeError(f"GitHub {exc.code}: {body.get('message', body)}") from exc
 
 
-def _start_flow() -> dict:
+def _start_flow(tr) -> dict:
     resp = _post_form(_DEVICE_URL, {"client_id": CLIENT_ID, "scope": SCOPE})
     if "device_code" not in resp:
-        raise RuntimeError(f"device flow не запустился: {resp}")
+        raise RuntimeError(tr("auth.flow_failed", resp=resp))
     return resp
 
 
-def _poll_flow(flow: dict, max_wait: int = 600) -> str:
+def _poll_flow(flow: dict, max_wait: int, tr) -> str:
     """Ждём авторизацию, уважая интервалы сервера (slow_down и т.п.)."""
     device_code = flow["device_code"]
     interval = max(int(flow.get("interval", 5)), 5)
@@ -141,17 +155,18 @@ def _poll_flow(flow: dict, max_wait: int = 600) -> str:
             "incorrect_device_code",
         ):
             raise RuntimeError(
-                f"авторизация не удалась: {error} — {answer.get('error_description', '')}"
+                tr("auth.failed", error=error, desc=answer.get("error_description", ""))
             )
         else:
             interval = max(int(answer.get("interval", interval + 5)), interval + 5)
-    raise RuntimeError("истекло время ожидания авторизации")
+    raise RuntimeError(tr("auth.timeout"))
 
 
 def status() -> dict:
+    tr = _tr()
     token = load_token()
     if not token:
-        return {"logged_in": False, "message": "нет токена — выполните `factory auth login`"}
+        return {"logged_in": False, "message": tr("auth.need_token")}
     try:
         user = _api_get("/user", token)
     except RuntimeError as exc:
@@ -164,10 +179,12 @@ def status() -> dict:
     }
 
 
-def login(open_browser: bool = True, resume: Path | None = None, max_wait: int = 600) -> dict:
+def login(open_browser: bool = True, resume: Path | None = None, max_wait: int = 600,
+          translator=None) -> dict:
     """Автовход. Если сохранённый токен рабочий — используем его.
     resume: файл с уже начатым device flow (device_code) — сначала
     пробуем допередать его (например, пользователь уже подтвердил код)."""
+    tr = _tr(translator)
     existing = load_token()
     if existing:
         try:
@@ -196,23 +213,23 @@ def login(open_browser: bool = True, resume: Path | None = None, max_wait: int =
         except Exception:  # noqa: BLE001
             flow = None
     if flow is None:
-        flow = _start_flow()
+        flow = _start_flow(tr)
 
     uri = flow.get("verification_uri", "https://github.com/login/device")
     code = flow.get("user_code", "")
-    print("[factory auth] Подтвердите вход на GitHub:")
-    print(f"  Откройте : {uri}")
-    print(f"  Код      : {code}")
+    print(tr("auth.title"))
+    print(f"{tr('auth.open_url')} {uri}")
+    print(f"{tr('auth.code')} {code}")
     if resume is not None:
-        print("  (продолжаем уже начатую авторизацию)")
+        print(tr("auth.resume"))
     if open_browser and uri:
         try:
             webbrowser.open(uri)
-            print("  Браузер открыт автоматически.")
+            print(tr("auth.browser"))
         except Exception:  # noqa: BLE001
             pass
 
-    token = _poll_flow(flow, max_wait=max_wait)
+    token = _poll_flow(flow, max_wait=max_wait, tr=tr)
     save_token(token)
     user = _api_get("/user", token)
     return {"status": "ok", "login": user.get("login"), "token_file": str(token_path())}

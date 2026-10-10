@@ -110,6 +110,20 @@ python -m factory release --no-build # использовать уже собр�
   `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
   в PATH и меню «Пуск».
 
+## Языки интерфейсов
+
+Интерфейсы (CLI, веб-дашборд, трей) работают на русском (по умолчанию),
+английском или китайском — на выбор пользователя:
+
+```bash
+python -m factory settings set ui.lang ru   # русский (по умолчанию)
+python -m factory settings set ui.lang en   # English
+python -m factory settings set ui.lang zh   # 中文
+```
+
+Также можно задать язык окружением `FACTORY_LANG=ru|en|zh`. В веб-дашборде
+язык переключается в секции «Настройки» (язык применяется сразу).
+
 ## Зависимости
 
 Ядро — только стандартная библиотека (Python ≥ 3.11). Опционально:

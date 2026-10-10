@@ -19,6 +19,8 @@ healthcheck = true
 [ui]
 # Интерфейс: cli | web | tray | all
 mode = "all"
+# Язык интерфейсов: ru | en | zh (по умолчанию ru)
+lang = "ru"
 
 [ui.web]
 host = "127.0.0.1"

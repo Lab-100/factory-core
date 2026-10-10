@@ -97,6 +97,12 @@ class Settings:
     def checkpoints(self) -> list[str]:
         return list(self.get("automation.semi.checkpoints", []) or [])
 
+    @property
+    def lang(self) -> str:
+        from .i18n import DEFAULT_LANG
+
+        return str(self.get("ui.lang", DEFAULT_LANG))
+
 
 def load(path: str | Path | None = None) -> Settings:
     if path is None:

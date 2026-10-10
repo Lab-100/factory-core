@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 
 from ..domains import DomainRegistry
+from ..i18n import make_translator
 from ..paths import repo_root
 from ..settings import load as load_settings
 
@@ -20,14 +21,14 @@ def _context():
 
 
 def serve() -> int:
+    settings, registry = _context()
+    tr = make_translator(settings)
     try:
         import pystray  # type: ignore
         from PIL import Image, ImageDraw  # type: ignore
     except Exception:  # noqa: BLE001
-        print("Трей недоступен: установите pystray и Pillow (pip install .[tray])")
+        print(tr("tray.unavailable"))
         return 1
-
-    settings, registry = _context()
 
     image = Image.new("RGB", (64, 64), "#161a22")
     draw = ImageDraw.Draw(image)
@@ -49,12 +50,12 @@ def serve() -> int:
         icon.stop()
 
     menu = pystray.Menu(
-        pystray.MenuItem(lambda item: f"Автоматизация: {settings.automation}", toggle_automation),
-        pystray.MenuItem("Открыть дашборд", open_web),
-        pystray.MenuItem("Перечитать домены", reload_domains),
-        pystray.MenuItem("Выход", quit_app),
+        pystray.MenuItem(lambda item: tr("tray.automation", mode=settings.automation), toggle_automation),
+        pystray.MenuItem(tr("tray.open_web"), open_web),
+        pystray.MenuItem(tr("tray.reload"), reload_domains),
+        pystray.MenuItem(tr("tray.quit"), quit_app),
     )
     icon = pystray.Icon("factory-core", image, "Фабрика Lab-100", menu)
-    print("Трей запущен.")
+    print(tr("tray.started"))
     icon.run()
     return 0

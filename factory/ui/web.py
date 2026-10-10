@@ -1,5 +1,9 @@
 """Веб-дашборд фабрики (стандартный http.server, без зависимостей).
 
+Интерфейс локализован (русский по умолчанию / English / 中文).
+Язык: настройка ui.lang (меняется в дашборде или `factory settings set ui.lang en`),
+либо переменная окружения FACTORY_LANG.
+
 Эндпоинты:
   GET  /                          — дашборд
   GET  /api/settings              — настройки
@@ -20,12 +24,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from ..context import build_context
+from ..i18n import choose, make_translator
 from ..jobs import JobManager
 from ..paths import repo_root
 
-PAGE = """<!doctype html>
-<html lang="ru"><head><meta charset="utf-8">
-<title>Фабрика Lab-100</title>
+_TEMPLATE = """<!doctype html>
+<html lang="{{lang}}"><head><meta charset="utf-8">
+<title>{{t_title}}</title>
 <style>
  body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1115;color:#e6e6e6}
  header{padding:16px 24px;background:#161a22;border-bottom:1px solid #262b36}
@@ -40,33 +45,43 @@ PAGE = """<!doctype html>
  textarea{resize:vertical}
  label{display:inline-block;margin-right:12px;margin-top:8px}
  code{color:#9ad1ff}
+ select{width:auto}
 </style></head><body>
-<header><h1>🏭 Фабрика Lab-100 — дашборд</h1></header>
+<header><h1>{{t_title}}</h1></header>
 <main>
- <section><h2>Новая задача</h2>
-  <textarea id="goal" rows="3" placeholder="Что нужно сделать?"></textarea>
-  <label>Домен: <input id="domain" placeholder="auto"></label>
-  <label>Режим:
+ <section><h2>{{t_new_task}}</h2>
+  <textarea id="goal" rows="3" placeholder="{{t_goal_ph}}"></textarea>
+  <label>{{t_domain}} <input id="domain" placeholder="auto"></label>
+  <label>{{t_mode}}
    <select id="automation">
-    <option value="">из настроек</option><option value="auto">auto</option><option value="semi">semi</option>
+    <option value="">{{t_from_settings}}</option><option value="auto">auto</option><option value="semi">semi</option>
    </select></label>
   <label><input type="checkbox" id="dry"> dry-run</label><br>
-  <button onclick="submitTask()">Запустить</button>
+  <button onclick="submitTask()">{{t_run}}</button>
   <div id="submitMsg"></div>
  </section>
- <section><h2>Задачи</h2><div id="jobs"></div></section>
- <section><h2>Настройки</h2><div id="settings"></div></section>
- <section><h2>Подвижные домены</h2><div id="domains"></div></section>
- <section><h2>Журнал</h2><div id="ledger"></div></section>
+ <section><h2>{{t_jobs}}</h2><div id="jobs"></div></section>
+ <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
+ <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
+ <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
 </main>
 <script>
+const T={
+ req:'{{t_goal_required}}',start:'{{t_task_started}}',err:'{{t_error}}',
+ thStatus:'{{t_th_status}}',thGoal:'{{t_th_goal}}',thDomain:'{{t_th_domain}}',
+ appr:'{{t_btn_approve}}',skip:'{{t_btn_skip}}',
+ profile:'{{t_profile}}',automation:'{{t_automation}}',current:'{{t_current}}',
+ uiLabel:'{{t_ui_label}}',thName:'{{t_th_name}}',thPriority:'{{t_th_priority}}',
+ thCaps:'{{t_th_caps}}',thState:'{{t_th_state}}',on:'{{t_on}}',off:'{{t_off}}'
+};
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function j(u){const r=await fetch(u);return r.json()}
 async function toggle(name,enabled){await fetch(`/api/domains/toggle?name=${encodeURIComponent(name)}&enabled=${enabled}`);load()}
 async function setSetting(k,v){await fetch(`/api/settings/set?key=${encodeURIComponent(k)}&value=${encodeURIComponent(v)}`);load()}
+async function setLang(v){await fetch(`/api/settings/set?key=ui.lang&value=${encodeURIComponent(v)}`);setTimeout(()=>location.reload(),150)}
 async function submitTask(){
  const goal=document.getElementById('goal').value.trim();
- if(!goal){document.getElementById('submitMsg').textContent='Укажите цель задачи';return}
+ if(!goal){document.getElementById('submitMsg').textContent=T.req;return}
  const body={
   schema:'invr.task/1',
   goal,
@@ -76,7 +91,9 @@ async function submitTask(){
  };
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
- document.getElementById('submitMsg').textContent=d.ok?`Задача ${d.job.id} запущена (${d.job.status})`:('Ошибка: '+(d.error||''));
+ document.getElementById('submitMsg').textContent=d.ok
+   ?T.start.replace('{id}',d.job.id).replace('{status}',d.job.status)
+   :T.err+(d.error||'');
  loadJobs();
 }
 async function approveJob(id,ok){
@@ -85,10 +102,10 @@ async function approveJob(id,ok){
 }
 async function loadJobs(){
  const r=await j('/api/jobs');
- document.getElementById('jobs').innerHTML='<table><tr><th>id</th><th>статус</th><th>цель</th><th>домен</th><th></th></tr>'+
+ document.getElementById('jobs').innerHTML='<table><tr><th>id</th><th>'+T.thStatus+'</th><th>'+T.thGoal+'</th><th>'+T.thDomain+'</th><th></th></tr>'+
   r.jobs.map(x=>{
    let actions='';
-   if(x.awaiting) actions=`<button onclick="approveJob('${x.id}',true)">✓ выполнить</button> <button class="warn" onclick="approveJob('${x.id}',false)">✕ пропустить</button>`;
+   if(x.awaiting) actions=`<button onclick="approveJob('${x.id}',true)">${T.appr}</button> <button class="warn" onclick="approveJob('${x.id}',false)">${T.skip}</button>`;
    const cls=x.status==='awaiting-approval'?'wait':(x.status==='done'?'on':(x.status==='running'?'wait':'off'));
    return `<tr><td>${x.id}</td><td class="${cls}">${x.status}</td><td>${esc(x.goal).slice(0,60)}</td><td>${x.domain||'auto'}</td><td>${actions}</td></tr>`;
   }).join('')+'</table>';
@@ -96,29 +113,75 @@ async function loadJobs(){
 async function load(){
  const s=await j('/api/settings');
  document.getElementById('settings').innerHTML =
-  `<p>Профиль: <code>${esc(s.active_profile)}</code></p>
-   <p>Автоматизация:
+  `<p>${T.profile} <code>${esc(s.active_profile)}</code></p>
+   <p>${T.automation}
      <button onclick="setSetting('automation.mode','auto')">auto</button>
      <button onclick="setSetting('automation.mode','semi')">semi</button>
-     &nbsp;текущий: <b>${esc(s.automation)}</b></p>
-   <p>Интерфейс:
+     &nbsp;${T.current} <b>${esc(s.automation)}</b></p>
+   <p>${T.uiLabel}
      <button onclick="setSetting('ui.mode','cli')">cli</button>
      <button onclick="setSetting('ui.mode','web')">web</button>
      <button onclick="setSetting('ui.mode','tray')">tray</button>
      <button onclick="setSetting('ui.mode','all')">all</button>
-     &nbsp;текущий: <b>${esc(s.ui)}</b></p>`;
+     &nbsp;${T.current} <b>${esc(s.ui)}</b></p>
+   <p><label>{{t_lang}} <select id="langSel" onchange="setLang(this.value)">
+     <option value="ru">Русский</option><option value="en">English</option><option value="zh">中文</option>
+   </select></label></p>`;
+ if(document.getElementById('langSel')) document.getElementById('langSel').value=(s.lang||'ru');
  const d=await j('/api/domains');
- document.getElementById('domains').innerHTML='<table><tr><th>Домен</th><th>Приоритет</th><th>Компетенции</th><th>Статус</th></tr>'+
+ document.getElementById('domains').innerHTML='<table><tr><th>'+T.thName+'</th><th>'+T.thPriority+'</th><th>'+T.thCaps+'</th><th>'+T.thState+'</th></tr>'+
   d.domains.map(x=>`<tr><td>${esc(x.name)}<br><small>${esc(x.title||'')}</small></td><td>${x.priority}</td>
    <td>${x.capabilities.map(esc).join(', ')}</td>
-   <td class="${x.enabled?'on':'off'}">${x.enabled?'вкл':'выкл'}
-   <button onclick="toggle('${x.name}',${!x.enabled})">${x.enabled?'выкл':'вкл'}</button></td></tr>`).join('')+'</table>';
+   <td class="${x.enabled?'on':'off'}">${x.enabled?T.on:T.off}
+   <button onclick="toggle('${x.name}',${!x.enabled})">${x.enabled?T.off:T.on}</button></td></tr>`).join('')+'</table>';
  const l=await j('/api/ledger');
  document.getElementById('ledger').innerHTML='<pre>'+l.events.map(e=>esc(JSON.stringify(e))).join('\\n')+'</pre>';
 }
 load();loadJobs();
 setInterval(loadJobs,2000);
 </script></body></html>"""
+
+
+def _page(lang: str) -> str:
+    tr = make_translator(lang=lang)
+    tokens = {
+        "lang": lang,
+        "t_title": tr("web.title"),
+        "t_new_task": tr("web.new_task"),
+        "t_goal_ph": tr("web.goal_ph"),
+        "t_domain": tr("web.domain"),
+        "t_mode": tr("web.mode"),
+        "t_from_settings": tr("web.from_settings"),
+        "t_run": tr("web.run"),
+        "t_jobs": tr("web.jobs"),
+        "t_settings": tr("web.settings"),
+        "t_dynamic_domains": tr("web.dynamic_domains"),
+        "t_ledger": tr("web.ledger"),
+        "t_goal_required": tr("web.goal_required"),
+        "t_task_started": tr("web.task_started"),
+        "t_error": tr("web.error"),
+        "t_th_status": tr("web.th_status"),
+        "t_th_goal": tr("web.th_goal"),
+        "t_th_domain": tr("web.th_domain"),
+        "t_btn_approve": tr("web.btn_approve"),
+        "t_btn_skip": tr("web.btn_skip"),
+        "t_profile": tr("web.profile"),
+        "t_automation": tr("web.automation"),
+        "t_current": tr("web.current"),
+        "t_ui_label": tr("web.ui_label"),
+        "t_th_name": tr("web.th_name"),
+        "t_th_priority": tr("web.th_priority"),
+        "t_th_caps": tr("web.th_caps"),
+        "t_th_state": tr("web.th_state"),
+        "t_on": tr("web.on"),
+        "t_off": tr("web.off"),
+        "t_lang": tr("web.lang"),
+    }
+    html = _TEMPLATE
+    for key, value in tokens.items():
+        html = html.replace("{{" + key + "}}", value)
+    return html
+
 
 _MANAGER: JobManager | None = None
 _MANAGER_LOCK = threading.Lock()
@@ -152,12 +215,14 @@ def _handler_class():
             query = parse_qs(parsed.query)
             path = parsed.path
             if path == "/":
-                return self._send(PAGE.encode("utf-8"), content_type="text/html; charset=utf-8")
+                return self._send(_page(choose(settings)).encode("utf-8"),
+                                  content_type="text/html; charset=utf-8")
             if path == "/api/settings":
                 return self._send({
                     "active_profile": settings.get("active_profile", "default"),
                     "automation": settings.automation,
                     "ui": settings.ui,
+                    "lang": settings.lang,
                     "data": settings.data,
                 })
             if path == "/api/settings/set":
@@ -211,14 +276,15 @@ def _handler_class():
 
 def serve(host: str | None = None, port: int | None = None) -> int:
     _, settings, _, _ = build_context()
+    tr = make_translator(settings)
     host = host or str(settings.get("ui.web.host", "127.0.0.1"))
     port = port or int(settings.get("ui.web.port", 8787))
     server = ThreadingHTTPServer((host, port), _handler_class())
-    print(f"Дашборд фабрики: http://{host}:{port}  (Ctrl+C — выход)")
+    print(tr("web.serving", host=host, port=port))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nОстановлено.")
+        print("\n" + tr("web.stopped"))
     finally:
         server.server_close()
     return 0

@@ -1,0 +1,404 @@
+"""Локализация интерфейсов фабрики: русский (по умолчанию) / английский / китайский.
+
+Язык выбирается (приоритет сверху вниз):
+  1) переменная окружения FACTORY_LANG=ru|en|zh;
+  2) настройка ui.lang в config/settings.toml (меняется через
+     `factory settings set ui.lang en` или из веб-дашборда);
+  3) по умолчанию — 'ru'.
+
+Использование:
+    from factory.i18n import choose, make_translator
+    lang = choose(settings)          # какой язык активен
+    tr = make_translator(settings)   # функция перевода
+    print(tr("status.root"))
+    print(tr("status.enabled_of", enabled=3, total=7))
+"""
+
+from __future__ import annotations
+
+import os
+
+DEFAULT_LANG = "ru"
+LANGS = ("ru", "en", "zh")
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "ru": {
+        # командная строка (parsers)
+        "parser.desc": "Фабрика Lab-100: пульт и диспетчер",
+        "cmd.status": "общий статус фабрики",
+        "cmd.domains": "подвижные домены",
+        "cmd.settings": "настройки фабрики",
+        "cmd.run": "выполнить заказ-наряд",
+        "cmd.ui": "запустить интерфейс",
+        "cmd.doctor": "диагностика адаптеров и зависимостей",
+        "cmd.region": "регион/доступ через region-spoof",
+        "cmd.jobs": "очередь задач",
+        "cmd.auth": "автовход в GitHub (device flow)",
+        "cmd.release": "собрать exe/zip и выпустить GitHub Release",
+        "arg.run.file": "файл задачи (.json/.toml)",
+        "arg.run.dry": "без внешних вызовов",
+        "arg.run.auto": "полная автоматика",
+        "arg.run.semi": "полуавтомат с подтверждениями",
+        "arg.run.yes": "авто-подтверждение в режиме semi",
+        "arg.region.region": "код региона, напр. US, DE, NL",
+        "arg.region.zone": "foreign | local",
+        "arg.auth.no_browser": "не открывать браузер автоматически",
+        "arg.auth.resume": "продолжить уже начатый flow (файл с device_code)",
+        "arg.release.tag": "тег (по умолчанию v<версия из pyproject.toml>)",
+        "arg.release.draft": "черновик релиза",
+        "arg.release.no_build": "не пересобирать exe (использовать готовый dist/)",
+        "arg.release.repo": "репозиторий owner/name",
+        "arg.release.token": "токен (по умолчанию: GITHUB_TOKEN / state/github.token / gh)",
+        # status
+        "status.root": "Корень фабрики",
+        "status.profile": "Профиль",
+        "status.automation": "Автоматизация",
+        "status.ui": "Интерфейс",
+        "status.domains": "Домены",
+        "status.enabled_of": "{enabled} включено из {total}",
+        "status.ledger": "Журнал",
+        "status.last_events": "{count} последних событий",
+        "status.v_auto": "auto (checkpoints: {checkpoints})",
+        "status.v_semi": "semi (checkpoints: {checkpoints})",
+        # домены / ошибки
+        "err.domain_not_found": "домен не найден: {name}",
+        "err.unknown_action": "неизвестное действие: {action}",
+        "domains.set_enabled": "{name}: enabled={enabled}",
+        # run / ui
+        "run.confirm_step": "Подтвердить шаг #{id} {cap} ({adapter}:{action})? [y/N] ",
+        "ui.cli_hint": "Интерфейс CLI: используйте `factory status`, `factory domains list` и т.д.",
+        "web.serving": "Дашборд фабрики: http://{host}:{port}  (Ctrl+C — выход)",
+        "web.stopped": "Остановлено.",
+        # doctor
+        "doctor.ready": "Готово адаптеров: {ready}/{total}",
+        "doctor.hint": ("Подсказка: адаптеры ищут свои репозитории рядом с factory-core "
+                        "(Lab100, region-spoof) или по переменным окружения "
+                        "(INVR_TOOLS_ROOT, LAB100_DIR, REGION_SPOOF_DIR)."),
+        # region
+        "region.not_found": ("region-spoof не найден (adapters.region_repo / REGION_SPOOF_DIR "
+                             "/ рядом с factory-core)"),
+        "region.note": ("config.json обновлён; region-spoof применит регион при следующем запуске. "
+                        "Для горячего переключения добавьте её CLI (docs/REGION_PROTOCOL.md)."),
+        # jobs
+        "jobs.empty": "Очередь пуста.",
+        # auth
+        "auth.need_token": "нет токена — выполните `factory auth login`",
+        "auth.error": "ошибка:",
+        "auth.title": "[factory auth] Подтвердите вход на GitHub:",
+        "auth.open_url": "  Откройте :",
+        "auth.code": "  Код      :",
+        "auth.browser": "  Браузер открыт автоматически.",
+        "auth.resume": "  (продолжаем уже начатую авторизацию)",
+        "auth.failed": "авторизация не удалась: {error} — {desc}",
+        "auth.timeout": "истекло время ожидания авторизации",
+        "auth.flow_failed": "device flow не запустился: {resp}",
+        # release
+        "rel.no_token": "[factory release] нет токена GitHub. Сначала: `factory auth login`",
+        "rel.error": "ошибка:",
+        "rel.step1": "1/5 собираю factory.exe (PyInstaller)...",
+        "rel.step2": "2/5 упаковываю dist/factory-core-win.zip...",
+        "rel.archive": "   архив: {path} ({size} КБ)",
+        "rel.repo_created": "   репозиторий {repo} создан",
+        "rel.push_git": "3/5 пуш в main: OK (git)",
+        "rel.push_api": "3/5 пуш в main: OK (Git Data API)",
+        "rel.api_loading": "   git-протокол недоступен — гружу {count} файлов через Git Data API",
+        "rel.tag_git_fail": "   пуш тега через git не удался — создаю через API",
+        "rel.tag": "4/5 тег {tag}",
+        "rel.release": "5/5 релиз: {url}",
+        "rel.asset": "   ассет: {url}",
+        # веб-дашборд
+        "web.title": "🏭 Фабрика Lab-100 — дашборд",
+        "web.new_task": "Новая задача",
+        "web.goal_ph": "Что нужно сделать?",
+        "web.domain": "Домен:",
+        "web.mode": "Режим:",
+        "web.from_settings": "из настроек",
+        "web.run": "Запустить",
+        "web.jobs": "Задачи",
+        "web.settings": "Настройки",
+        "web.dynamic_domains": "Подвижные домены",
+        "web.ledger": "Журнал",
+        "web.goal_required": "Укажите цель задачи",
+        "web.task_started": "Задача {id} запущена ({status})",
+        "web.error": "Ошибка: ",
+        "web.th_id": "id",
+        "web.th_status": "статус",
+        "web.th_goal": "цель",
+        "web.th_domain": "домен",
+        "web.btn_approve": "✓ выполнить",
+        "web.btn_skip": "✕ пропустить",
+        "web.profile": "Профиль:",
+        "web.automation": "Автоматизация:",
+        "web.ui_label": "Интерфейс:",
+        "web.current": "текущий:",
+        "web.th_name": "Домен",
+        "web.th_priority": "Приоритет",
+        "web.th_caps": "Компетенции",
+        "web.th_state": "Статус",
+        "web.on": "вкл",
+        "web.off": "выкл",
+        "web.lang": "Язык:",
+        # трей
+        "tray.automation": "Автоматизация: {mode}",
+        "tray.open_web": "Открыть дашборд",
+        "tray.reload": "Перечитать домены",
+        "tray.quit": "Выход",
+        "tray.started": "Трей запущен.",
+        "tray.unavailable": "Трей недоступен: установите pystray и Pillow (pip install .[tray])",
+    },
+    "en": {
+        "parser.desc": "Lab-100 Factory: control & dispatcher",
+        "cmd.status": "overall factory status",
+        "cmd.domains": "dynamic domains",
+        "cmd.settings": "factory settings",
+        "cmd.run": "run a task (work order)",
+        "cmd.ui": "start an interface",
+        "cmd.doctor": "check adapters and dependencies",
+        "cmd.region": "region/access via region-spoof",
+        "cmd.jobs": "jobs queue",
+        "cmd.auth": "auto-login to GitHub (device flow)",
+        "cmd.release": "build exe/zip and publish a GitHub Release",
+        "arg.run.file": "task file (.json/.toml)",
+        "arg.run.dry": "no external calls",
+        "arg.run.auto": "full automation",
+        "arg.run.semi": "semi-auto with confirmations",
+        "arg.run.yes": "auto-approve in semi mode",
+        "arg.region.region": "region code, e.g. US, DE, NL",
+        "arg.region.zone": "foreign | local",
+        "arg.auth.no_browser": "do not open the browser automatically",
+        "arg.auth.resume": "continue an already started flow (file with device_code)",
+        "arg.release.tag": "tag (default: v<version from pyproject.toml>)",
+        "arg.release.draft": "draft release",
+        "arg.release.no_build": "do not rebuild the exe (use ready dist/)",
+        "arg.release.repo": "repository owner/name",
+        "arg.release.token": "token (default: GITHUB_TOKEN / state/github.token / gh)",
+        "status.root": "Factory root",
+        "status.profile": "Profile",
+        "status.automation": "Automation",
+        "status.ui": "UI",
+        "status.domains": "Domains",
+        "status.enabled_of": "{enabled} enabled of {total}",
+        "status.ledger": "Ledger",
+        "status.last_events": "{count} recent events",
+        "status.v_auto": "auto (checkpoints: {checkpoints})",
+        "status.v_semi": "semi (checkpoints: {checkpoints})",
+        "err.domain_not_found": "domain not found: {name}",
+        "err.unknown_action": "unknown action: {action}",
+        "domains.set_enabled": "{name}: enabled={enabled}",
+        "run.confirm_step": "Confirm step #{id} {cap} ({adapter}:{action})? [y/N] ",
+        "ui.cli_hint": "CLI UI: use `factory status`, `factory domains list`, etc.",
+        "web.serving": "Factory dashboard: http://{host}:{port}  (Ctrl+C to quit)",
+        "web.stopped": "Stopped.",
+        "doctor.ready": "Adapters ready: {ready}/{total}",
+        "doctor.hint": ("Hint: adapters look for their repos next to factory-core "
+                        "(Lab100, region-spoof) or via env vars "
+                        "(INVR_TOOLS_ROOT, LAB100_DIR, REGION_SPOOF_DIR)."),
+        "region.not_found": ("region-spoof not found (adapters.region_repo / REGION_SPOOF_DIR "
+                             "/ next to factory-core)"),
+        "region.note": ("config.json updated; region-spoof will apply the region on next start. "
+                        "For hot switch add its CLI (docs/REGION_PROTOCOL.md)."),
+        "jobs.empty": "Queue is empty.",
+        "auth.need_token": "no token — run `factory auth login` first",
+        "auth.error": "error:",
+        "auth.title": "[factory auth] Confirm the sign-in on GitHub:",
+        "auth.open_url": "  Open     :",
+        "auth.code": "  Code     :",
+        "auth.browser": "  Browser opened automatically.",
+        "auth.resume": "  (continuing an already started authorization)",
+        "auth.failed": "authorization failed: {error} — {desc}",
+        "auth.timeout": "authorization wait timed out",
+        "auth.flow_failed": "device flow did not start: {resp}",
+        "rel.no_token": "[factory release] no GitHub token. First run: `factory auth login`",
+        "rel.error": "error:",
+        "rel.step1": "1/5 building factory.exe (PyInstaller)...",
+        "rel.step2": "2/5 packing dist/factory-core-win.zip...",
+        "rel.archive": "   archive: {path} ({size} KB)",
+        "rel.repo_created": "   repository {repo} created",
+        "rel.push_git": "3/5 push to main: OK (git)",
+        "rel.push_api": "3/5 push to main: OK (Git Data API)",
+        "rel.api_loading": "   git protocol unavailable — uploading {count} files via Git Data API",
+        "rel.tag_git_fail": "   git tag push failed — creating via API",
+        "rel.tag": "4/5 tag {tag}",
+        "rel.release": "5/5 release: {url}",
+        "rel.asset": "   asset: {url}",
+        "web.title": "🏭 Lab-100 Factory — dashboard",
+        "web.new_task": "New task",
+        "web.goal_ph": "What needs to be done?",
+        "web.domain": "Domain:",
+        "web.mode": "Mode:",
+        "web.from_settings": "from settings",
+        "web.run": "Run",
+        "web.jobs": "Jobs",
+        "web.settings": "Settings",
+        "web.dynamic_domains": "Dynamic domains",
+        "web.ledger": "Ledger",
+        "web.goal_required": "Enter a task goal",
+        "web.task_started": "Task {id} started ({status})",
+        "web.error": "Error: ",
+        "web.th_id": "id",
+        "web.th_status": "status",
+        "web.th_goal": "goal",
+        "web.th_domain": "domain",
+        "web.btn_approve": "✓ approve",
+        "web.btn_skip": "✕ skip",
+        "web.profile": "Profile:",
+        "web.automation": "Automation:",
+        "web.ui_label": "UI:",
+        "web.current": "current:",
+        "web.th_name": "Domain",
+        "web.th_priority": "Priority",
+        "web.th_caps": "Capabilities",
+        "web.th_state": "Status",
+        "web.on": "on",
+        "web.off": "off",
+        "web.lang": "Language:",
+        "tray.automation": "Automation: {mode}",
+        "tray.open_web": "Open dashboard",
+        "tray.reload": "Reload domains",
+        "tray.quit": "Quit",
+        "tray.started": "Tray started.",
+        "tray.unavailable": "Tray is unavailable: install pystray and Pillow (pip install .[tray])",
+    },
+    "zh": {
+        "parser.desc": "Lab-100 工厂：控制与调度",
+        "cmd.status": "工厂总体状态",
+        "cmd.domains": "动态域",
+        "cmd.settings": "工厂设置",
+        "cmd.run": "执行任务工单",
+        "cmd.ui": "启动界面",
+        "cmd.doctor": "检查适配器与依赖",
+        "cmd.region": "通过 region-spoof 切换区域/访问",
+        "cmd.jobs": "任务队列",
+        "cmd.auth": "自动登录 GitHub（设备流程）",
+        "cmd.release": "构建 exe/zip 并发布 GitHub Release",
+        "arg.run.file": "任务文件（.json/.toml）",
+        "arg.run.dry": "不调用外部",
+        "arg.run.auto": "全自动",
+        "arg.run.semi": "半自动（需确认）",
+        "arg.run.yes": "半自动模式下自动确认",
+        "arg.region.region": "区域代码，如 US、DE、NL",
+        "arg.region.zone": "foreign | local",
+        "arg.auth.no_browser": "不自动打开浏览器",
+        "arg.auth.resume": "继续已开始的流程（含 device_code 的文件）",
+        "arg.release.tag": "标签（默认：pyproject.toml 中版本号的 v<版本>）",
+        "arg.release.draft": "草稿发布",
+        "arg.release.no_build": "不重新构建 exe（使用现有 dist/）",
+        "arg.release.repo": "仓库 owner/name",
+        "arg.release.token": "令牌（默认：GITHUB_TOKEN / state/github.token / gh）",
+        "status.root": "工厂根目录",
+        "status.profile": "配置档",
+        "status.automation": "自动化",
+        "status.ui": "界面",
+        "status.domains": "域",
+        "status.enabled_of": "已启用 {enabled} / {total}",
+        "status.ledger": "日志",
+        "status.last_events": "最近 {count} 条事件",
+        "status.v_auto": "auto（检查点：{checkpoints}）",
+        "status.v_semi": "semi（检查点：{checkpoints}）",
+        "err.domain_not_found": "找不到域：{name}",
+        "err.unknown_action": "未知操作：{action}",
+        "domains.set_enabled": "{name}：enabled={enabled}",
+        "run.confirm_step": "确认步骤 #{id} {cap}（{adapter}:{action}）？[y/N] ",
+        "ui.cli_hint": "CLI 界面：使用 `factory status`、`factory domains list` 等",
+        "web.serving": "工厂仪表板：http://{host}:{port}（Ctrl+C 退出）",
+        "web.stopped": "已停止。",
+        "doctor.ready": "适配器就绪：{ready}/{total}",
+        "doctor.hint": ("提示：适配器在 factory-core 旁查找仓库（Lab100、region-spoof），"
+                        "或使用环境变量（INVR_TOOLS_ROOT、LAB100_DIR、REGION_SPOOF_DIR）。"),
+        "region.not_found": ("未找到 region-spoof（adapters.region_repo / REGION_SPOOF_DIR "
+                             "/ factory-core 旁）"),
+        "region.note": ("已更新 config.json；region-spoof 将在下次启动时应用。"
+                        "如需热切换，请添加其 CLI（docs/REGION_PROTOCOL.md）。"),
+        "jobs.empty": "队列为空。",
+        "auth.need_token": "没有令牌 — 请先运行 `factory auth login`",
+        "auth.error": "错误：",
+        "auth.title": "[factory auth] 请在 GitHub 确认登录：",
+        "auth.open_url": "  打开     ：",
+        "auth.code": "  代码     ：",
+        "auth.browser": "  浏览器已自动打开。",
+        "auth.resume": "  （继续已开始的授权）",
+        "auth.failed": "授权失败：{error} — {desc}",
+        "auth.timeout": "等待授权超时",
+        "auth.flow_failed": "设备流程启动失败：{resp}",
+        "rel.no_token": "[factory release] 没有 GitHub 令牌。请先运行：`factory auth login`",
+        "rel.error": "错误：",
+        "rel.step1": "1/5 构建 factory.exe（PyInstaller）...",
+        "rel.step2": "2/5 打包 dist/factory-core-win.zip...",
+        "rel.archive": "   归档：{path}（{size} KB）",
+        "rel.repo_created": "   已创建仓库 {repo}",
+        "rel.push_git": "3/5 推送到 main：OK（git）",
+        "rel.push_api": "3/5 推送到 main：OK（Git Data API）",
+        "rel.api_loading": "   git 协议不可用 — 通过 Git Data API 上传 {count} 个文件",
+        "rel.tag_git_fail": "   通过 git 推送标签失败 — 改用 API 创建",
+        "rel.tag": "4/5 标签 {tag}",
+        "rel.release": "5/5 发布：{url}",
+        "rel.asset": "   附件：{url}",
+        "web.title": "🏭 Lab-100 工厂 — 仪表板",
+        "web.new_task": "新任务",
+        "web.goal_ph": "需要做什么？",
+        "web.domain": "域：",
+        "web.mode": "模式：",
+        "web.from_settings": "按设置",
+        "web.run": "运行",
+        "web.jobs": "任务",
+        "web.settings": "设置",
+        "web.dynamic_domains": "动态域",
+        "web.ledger": "日志",
+        "web.goal_required": "请填写任务目标",
+        "web.task_started": "任务 {id} 已启动（{status}）",
+        "web.error": "错误：",
+        "web.th_id": "id",
+        "web.th_status": "状态",
+        "web.th_goal": "目标",
+        "web.th_domain": "域",
+        "web.btn_approve": "✓ 执行",
+        "web.btn_skip": "✕ 跳过",
+        "web.profile": "配置档：",
+        "web.automation": "自动化：",
+        "web.ui_label": "界面：",
+        "web.current": "当前：",
+        "web.th_name": "域",
+        "web.th_priority": "优先级",
+        "web.th_caps": "能力",
+        "web.th_state": "状态",
+        "web.on": "开",
+        "web.off": "关",
+        "web.lang": "语言：",
+        "tray.automation": "自动化：{mode}",
+        "tray.open_web": "打开仪表板",
+        "tray.reload": "重新读取域",
+        "tray.quit": "退出",
+        "tray.started": "托盘已启动。",
+        "tray.unavailable": "托盘不可用：请安装 pystray 和 Pillow（pip install .[tray]）",
+    },
+}
+
+
+def choose(settings=None, env_value: str | None = None) -> str:
+    """Какой язык активен: FACTORY_LANG → ui.lang → ru."""
+    candidate = env_value or os.environ.get("FACTORY_LANG", "")
+    if candidate in LANGS:
+        return str(candidate)
+    if settings is not None:
+        value = settings.get("ui.lang")
+        if value and str(value) in LANGS:
+            return str(value)
+    return DEFAULT_LANG
+
+
+def t(lang: str, key: str, **kwargs) -> str:
+    """Перевод по ключу; при отсутствии — русский, затем сам ключ."""
+    table = MESSAGES.get(lang) or MESSAGES[DEFAULT_LANG]
+    text = table.get(key) or MESSAGES[DEFAULT_LANG].get(key) or key
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except (KeyError, IndexError, ValueError):
+            return text
+    return text
+
+
+def make_translator(settings=None, lang: str | None = None):
+    """Возвращает функцию tr(key, **kwargs) → str для активного языка."""
+    chosen = lang or choose(settings)
+    return lambda key, **kwargs: t(chosen, key, **kwargs)

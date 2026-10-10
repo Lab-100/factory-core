@@ -53,3 +53,27 @@ llm_local_enabled = true
 ollama_host = "http://127.0.0.1:11434"
 region_enabled = true
 region_repo = ""         # каталог region-spoof; пусто — env REGION_SPOOF_DIR / рядом
+deploy_dir = ""          # каталог devstation-deploy; пусто — env DEVSTATION_DEPLOY_DIR / рядом
+backup_enabled = true    # учитывать изменения через backup-util (ChangeId) — этап 3
+metrics_enabled = true   # отправлять метрики в orch-metrics — этап 3
+
+[inventory]
+# Карта «что умеем» (этап 0); сохраняется командой `factory inventory`
+path = "state/inventory.json"
+
+[quotas]
+# Зеркальный учёт расхода квот Lab100 (этап 4, `factory quotas`)
+path = "state/quotas.json"
+
+[metrics]
+# Локальный приёмник метрик, если orch-metrics недоступен
+path = "state/metrics.jsonl"
+
+[watchdog]
+# Супервизия (этап 5): период опроса и порог «зависшей» задачи, секунды
+interval_s = 30
+stuck_after_s = 600
+
+[region]
+# Регион по умолчанию для шага region-switch, если задача не задала свой
+default = "US"

@@ -47,6 +47,7 @@ class JobManager:
                 self._jobs[job["id"]] = job
 
     def _persist(self, job: dict) -> None:
+        job["updated"] = _now()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(job, ensure_ascii=False) + "\n")
@@ -62,6 +63,7 @@ class JobManager:
         return {
             "id": job.get("id"),
             "created": job.get("created"),
+            "updated": job.get("updated"),
             "status": job.get("status"),
             "goal": job.get("goal"),
             "domain": job.get("domain"),
@@ -82,6 +84,7 @@ class JobManager:
         job = {
             "id": job_id,
             "created": _now(),
+            "updated": _now(),
             "status": "queued",
             "goal": payload.get("goal", ""),
             "domain": payload.get("domain"),
@@ -94,7 +97,7 @@ class JobManager:
         }
         with self._lock:
             self._jobs[job_id] = job
-            self._persist(dict(job))
+            self._persist(job)
         threading.Thread(target=self._run, args=(job_id, payload), daemon=True).start()
         return job
 
@@ -111,7 +114,7 @@ class JobManager:
                 job["awaiting"] = True
                 job["pending"] = step.to_dict()
                 job["status"] = "awaiting-approval"
-                self._persist(dict(job))
+                self._persist(job)
                 event.wait(timeout=3600)
                 decision = self._decisions.pop(job_id, False)
                 job["awaiting"] = False
@@ -119,7 +122,7 @@ class JobManager:
                 return decision
 
             job["status"] = "running"
-            self._persist(dict(job))
+            self._persist(job)
             result = dispatcher.execute(task, approve=approve, dry_run=job["dry_run"])
             job["result"] = result
             if result.get("ok"):
@@ -132,7 +135,7 @@ class JobManager:
             job["status"] = "error"
             job["error"] = str(exc)
         finally:
-            self._persist(dict(job))
+            self._persist(job)
 
     def approve(self, job_id: str, ok: bool = True) -> dict | None:
         self._decisions[job_id] = bool(ok)
@@ -140,3 +143,34 @@ class JobManager:
         if event:
             event.set()
         return self._jobs.get(job_id)
+
+    def heal_stuck(self, stuck_after_s: float = 600) -> list[str]:
+        """Авто-восстановление (watchdog): пометить зависшие задачи как failed.
+
+        Задача считается зависшей, если слишком долго находится в статусе
+        `running` или `awaiting-approval` (с момента последнего изменения).
+        """
+        now = datetime.now(timezone.utc)
+        healed: list[str] = []
+        for job_id, job in list(self._jobs.items()):
+            if job.get("status") not in ("running", "awaiting-approval"):
+                continue
+            stamp = job.get("updated") or job.get("created")
+            if not stamp:
+                continue
+            try:
+                age = (now - datetime.fromisoformat(stamp)).total_seconds()
+            except ValueError:
+                continue
+            if age <= stuck_after_s:
+                continue
+            job["status"] = "failed"
+            job["awaiting"] = False
+            job["pending"] = None
+            job["error"] = job.get("error") or f"watchdog: задача зависла (> {int(stuck_after_s)} с)"
+            event = self._events.get(job_id)
+            if event:
+                event.set()
+            self._persist(job)
+            healed.append(job_id)
+        return healed

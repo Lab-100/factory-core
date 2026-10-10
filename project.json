@@ -1,0 +1,59 @@
+{
+  "schema": "invr.project/1",
+  "name": "factory-core",
+  "title": "Фабрика Lab-100 — пульт и диспетчер",
+  "version": "0.2.0",
+  "description": "Единый верхний слой, связывающий репозитории Lab-100 в одно «предприятие»: подвижные домены, диспетчер задач, веб-дашборд и автоматизация.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Lab-100/factory-core",
+  "repos": [
+    {
+      "name": "scripts-tools",
+      "role": "Склад инструментов (версионированные инструменты + шимы)",
+      "url": "https://github.com/Lab-100/scripts-tools",
+      "env": "INVR_TOOLS_ROOT",
+      "setting": "adapters.invr_root",
+      "channel": "registry"
+    },
+    {
+      "name": "devstation-deploy",
+      "role": "Монтаж/наладка (развёртывание инфраструктуры)",
+      "url": "https://github.com/Lab-100/devstation-deploy",
+      "env": "DEVSTATION_DEPLOY_DIR",
+      "setting": "adapters.deploy_dir",
+      "channel": "scripts"
+    },
+    {
+      "name": "Lab100",
+      "role": "Цех исполнителей (пул ИИ-агентов, компетенции, квоты)",
+      "url": "https://github.com/Lab-100/Lab100",
+      "env": "LAB100_DIR",
+      "setting": "adapters.lab100_dir",
+      "channel": "python -m lab100.cli"
+    },
+    {
+      "name": "region-spoof",
+      "role": "Логистика/доступ (смена региона для заблокированных ресурсов)",
+      "url": "https://github.com/Lab-100/region-spoof",
+      "env": "REGION_SPOOF_DIR",
+      "setting": "adapters.region_repo",
+      "channel": "config.json / CLI"
+    }
+  ],
+  "contracts": [
+    "invr.task/1",
+    "invr.factory.settings/1",
+    "invr.factory.domains/1",
+    "invr.factory.profile/1",
+    "invr.inventory/1",
+    "invr.quotas/1",
+    "invr.project/1"
+  ],
+  "entrypoints": {
+    "cli": "factory",
+    "web": "factory ui --mode web",
+    "tray": "factory ui --mode tray",
+    "release": "factory release"
+  },
+  "ledger": "state/ledger.jsonl"
+}

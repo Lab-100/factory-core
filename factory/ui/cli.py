@@ -231,6 +231,167 @@ def _cmd_release(args) -> int:
     return 0
 
 
+def _fmt_num(value) -> str:
+    """Число без хвостового .0; None → знак бесконечности."""
+    if value is None:
+        return "∞"
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(as_float)) if as_float.is_integer() else str(as_float)
+
+
+def _inventory_detail(name: str, source: dict) -> str:
+    if name == "scripts-tools":
+        return f"tools={source.get('count', 0)}, shims={len(source.get('shims', []))}"
+    if name == "Lab100":
+        return f"providers={source.get('count', 0)}"
+    if name == "region-spoof":
+        return f"regions={len(source.get('regions', []))}"
+    return f"stages={source.get('count', 0)}"
+
+
+def _ledger_detail(event: dict) -> str:
+    parts: list[str] = []
+    if event.get("task"):
+        parts.append(f"task={event['task']}")
+    if event.get("step") is not None:
+        parts.append(f"step={event['step']}")
+    if event.get("status"):
+        parts.append(f"status={event['status']}")
+    elif event.get("ok") is not None:
+        parts.append(f"ok={event['ok']}")
+    if event.get("adapter"):
+        parts.append(f"adapter={event['adapter']}")
+    if event.get("change_id"):
+        parts.append(f"change={event['change_id']}")
+    if event.get("actions"):
+        parts.append("actions=" + ",".join(str(a.get("action", "?")) for a in event["actions"]))
+    return ", ".join(parts)
+
+
+def _cmd_inventory(args) -> int:
+    """Инвентаризация: карта инструментов/провайдеров/регионов (этап 0)."""
+    from .. import inventory
+
+    _, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    data = inventory.build(settings)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(tr("inventory.title"))
+        print(tr("inventory.summary", **data["summary"]))
+        for name, source in data["sources"].items():
+            if not source.get("available"):
+                print(tr("inventory.absent", name=name))
+            else:
+                print(tr("inventory.source", name=name, path=source.get("root", ""),
+                         detail=_inventory_detail(name, source)))
+    if not args.no_save:
+        saved = inventory.save(settings, data)
+        print(tr("inventory.saved", path=saved))
+    return 0
+
+
+def _cmd_quotas(args) -> int:
+    """Квоты исполнителей Lab100: лимиты + расход (этап 4)."""
+    from .. import quotas
+
+    _, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    if args.reset is not None:
+        quotas.reset(settings, args.reset or None)
+        print(tr("quotas.reset_ok"))
+        return 0
+    data = quotas.build(settings)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print(tr("quotas.title"))
+    if not data["available"]:
+        print(tr("quotas.not_available"))
+        return 0
+    if not data["providers"]:
+        print(tr("quotas.empty"))
+        return 0
+    header = (f"{tr('quotas.th_provider'):<16} {tr('quotas.th_window'):<10} "
+              f"{tr('quotas.th_limit'):>8} {tr('quotas.th_used'):>14} "
+              f"{tr('quotas.th_remaining'):>10} {tr('quotas.th_percent'):>10}")
+    print(f"  {header}")
+    for provider, row in data["providers"].items():
+        percent = "" if row["percent"] is None else row["percent"]
+        print(f"  {provider:<16} {str(row['window']):<10} "
+              f"{_fmt_num(row['limit']):>8} {_fmt_num(row['used']):>14} "
+              f"{_fmt_num(row['remaining']):>10} {str(percent):>10}")
+    return 0
+
+
+def _cmd_watchdog(args) -> int:
+    """Супервизия фабрики: наблюдение и авто-восстановление (этап 5)."""
+    from ..watchdog import Watchdog
+
+    root, settings, _, ledger = build_context()
+    tr = make_translator(settings)
+    dog = Watchdog(settings, root=root, ledger=ledger)
+    iterations = 1 if args.once else (None if not args.iterations else args.iterations)
+    print(tr("watchdog.title"))
+    counter = {"n": 0}
+
+    def on_tick(result: dict) -> None:
+        counter["n"] += 1
+        health = result.get("health", {})
+        actions = result.get("actions", [])
+        active = sum(1 for value in health.values() if value)
+        print(tr("watchdog.tick", n=counter["n"], active=active,
+                 total=len(health), actions=len(actions)))
+        if actions:
+            for action in actions:
+                detail = ", ".join(f"{k}={v}" for k, v in action.items() if k != "action")
+                print(tr("watchdog.action", action=action.get("action"), detail=detail))
+        else:
+            print(tr("watchdog.none"))
+
+    try:
+        dog.run(interval=args.interval, iterations=iterations, on_tick=on_tick)
+    except KeyboardInterrupt:
+        print()
+    if iterations is None:
+        print(tr("watchdog.stopped", n=counter["n"]))
+    return 0
+
+
+def _cmd_ledger(args) -> int:
+    """Единый журнал фабрики: задачи/шаги/изменения/watchdog (§8.4)."""
+    _, settings, _, ledger = build_context()
+    tr = make_translator(settings)
+    events = ledger.tail(args.limit)
+    if args.kind:
+        events = [event for event in events if str(event.get("kind", "")).startswith(args.kind)]
+    if not events:
+        print(tr("ledger.empty"))
+        return 0
+    print(tr("ledger.title", count=len(events)))
+    for event in events:
+        print(tr("ledger.line", ts=event.get("ts", ""), kind=event.get("kind", ""),
+                 detail=_ledger_detail(event)))
+    return 0
+
+
+def _cmd_manifest(args) -> int:
+    """Манифест фабрики `project.json` (invr.project/1) — §8.1."""
+    root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    path = Path(root) / "project.json"
+    if not path.exists():
+        print(tr("manifest.missing"), file=sys.stderr)
+        return 1
+    data = json.loads(path.read_text(encoding="utf-8"))
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -289,6 +450,33 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_release.add_argument("--repo", default="Lab-100/factory-core", help=t(lang, "arg.release.repo"))
     p_release.add_argument("--token", default=None, help=t(lang, "arg.release.token"))
     p_release.set_defaults(func=_cmd_release)
+
+    p_inventory = sub.add_parser("inventory", help=t(lang, "cmd.inventory"))
+    p_inventory.add_argument("--json", action="store_true", help=t(lang, "arg.inventory.json"))
+    p_inventory.add_argument("--no-save", action="store_true", help=t(lang, "arg.inventory.no_save"))
+    p_inventory.set_defaults(func=_cmd_inventory)
+
+    p_quotas = sub.add_parser("quotas", help=t(lang, "cmd.quotas"))
+    p_quotas.add_argument("--json", action="store_true", help=t(lang, "arg.quotas.json"))
+    p_quotas.add_argument("--reset", nargs="?", const="", default=None,
+                          help=t(lang, "arg.quotas.reset"))
+    p_quotas.set_defaults(func=_cmd_quotas)
+
+    p_watchdog = sub.add_parser("watchdog", help=t(lang, "cmd.watchdog"))
+    p_watchdog.add_argument("--once", action="store_true", help=t(lang, "arg.watchdog.once"))
+    p_watchdog.add_argument("--interval", type=float, default=30.0,
+                            help=t(lang, "arg.watchdog.interval"))
+    p_watchdog.add_argument("--iterations", type=int, default=0,
+                            help=t(lang, "arg.watchdog.iterations"))
+    p_watchdog.set_defaults(func=_cmd_watchdog)
+
+    p_ledger = sub.add_parser("ledger", help=t(lang, "cmd.ledger"))
+    p_ledger.add_argument("--limit", type=int, default=50, help=t(lang, "arg.ledger.limit"))
+    p_ledger.add_argument("--kind", default=None, help=t(lang, "arg.ledger.kind"))
+    p_ledger.set_defaults(func=_cmd_ledger)
+
+    p_manifest = sub.add_parser("manifest", help=t(lang, "cmd.manifest"))
+    p_manifest.set_defaults(func=_cmd_manifest)
 
     return parser
 

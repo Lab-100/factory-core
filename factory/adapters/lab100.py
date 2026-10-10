@@ -31,14 +31,20 @@ class Lab100Adapter(Adapter):
     def _python(self) -> str:
         return str(self.settings.get("adapters.lab100_python") or sys.executable)
 
+    # действие фабрики -> подкоманда Lab100 CLI (у CLI нет `research`)
+    _SUBCMD = {"research": "ask"}
+
     def _command(self, action: str, params: dict) -> list[str]:
         override = self.settings.get("adapters.lab100_cmd")
+        subcmd = self._SUBCMD.get(action, action)
         argument = self._argument(action, params)
         if override:
             base = list(override) if isinstance(override, list) else str(override).split()
-            argv = [*base, action, argument]
+            argv = [*base, subcmd, argument]
         else:
-            argv = [self._python(), "-m", "lab100.cli", action, argument]
+            argv = [self._python(), "-m", "lab100.cli", subcmd, argument]
+        if action == "research":
+            argv += ["--capability", str(params.get("capability") or "deep-research")]
         if action == "search" and not params.get("with_llm"):
             argv.append("--no-llm")
         if action == "search" and params.get("provider"):

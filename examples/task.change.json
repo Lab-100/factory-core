@@ -1,0 +1,13 @@
+{
+  "schema": "invr.task/1",
+  "id": "task-change-001",
+  "operator": "HGZ",
+  "domain": "infra",
+  "goal": "Обновить инфраструктуру (docker/mcp) и зафиксировать изменение через backup-util",
+  "capabilities": ["code", "answer"],
+  "inputs": { "note": "пример задачи с фиксацией ChangeId (этап 3)" },
+  "outputs": { "artifacts": ["infra.log"], "catalog": "catalog/infra/update" },
+  "constraints": { "prefer": "local-only", "allow_region_switch": false },
+  "on_change": "config/settings.toml",
+  "acceptance": ["ChangeId зафиксирован в едином журнале"]
+}

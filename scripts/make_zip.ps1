@@ -13,11 +13,12 @@ Copy-Item "dist\factory.exe" $pkg
 Copy-Item -Recurse "config" "$pkg\config"
 Copy-Item -Recurse "schemas" "$pkg\schemas"
 Copy-Item -Recurse "examples" "$pkg\examples"
+Copy-Item -Recurse "docs" "$pkg\docs"
 Copy-Item "README.md" $pkg
 Copy-Item "LICENSE" $pkg
+if (Test-Path "project.json") { Copy-Item "project.json" $pkg }
 Copy-Item "scripts\install.ps1" "$pkg\install.ps1"
 Copy-Item "scripts\uninstall.ps1" "$pkg\uninstall.ps1"
-Copy-Item "docs\REGION_PROTOCOL.md" $pkg
 
 $zip = "dist\factory-core-win.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue

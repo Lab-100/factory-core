@@ -18,11 +18,18 @@ def _seed_bundled(root: Path) -> None:
     meipass = Path(getattr(sys, "_MEIPASS", ""))
     if not meipass.is_dir():
         return
-    for name in ("config", "schemas", "examples"):
+def _seed_bundled(root: Path) -> None:
+    meipass = Path(getattr(sys, "_MEIPASS", ""))
+    if not meipass.is_dir():
+        return
+    for name in ("config", "schemas", "examples", "docs"):
         src = meipass / name
         dst = root / name
         if src.is_dir() and not dst.exists():
             shutil.copytree(src, dst)
+    manifest = meipass / "project.json"
+    if manifest.is_file() and not (root / "project.json").exists():
+        shutil.copy2(manifest, root / "project.json")
 
 
 def user_root() -> Path:

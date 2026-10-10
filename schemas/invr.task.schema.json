@@ -33,6 +33,7 @@
       }
     },
     "automation": { "type": "string", "enum": ["auto", "semi"], "description": "Переопределяет настройку по умолчанию" },
-    "acceptance": { "type": "array", "items": { "type": "string" } }
+    "acceptance": { "type": "array", "items": { "type": "string" } },
+    "on_change": { "type": "string", "description": "Инструмент фиксации изменений (ChangeId) после задачи, например backup-util" }
   }
 }

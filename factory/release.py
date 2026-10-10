@@ -117,6 +117,8 @@ def build_exe(root: Path) -> None:
            "--add-data", f"config{os.pathsep}config",
            "--add-data", f"schemas{os.pathsep}schemas",
            "--add-data", f"examples{os.pathsep}examples",
+           "--add-data", f"docs{os.pathsep}docs",
+           "--add-data", f"project.json{os.pathsep}.",
            "run.py"]
     subprocess.run(cmd, cwd=str(root), check=True, timeout=900)
     exe = root / "dist" / "factory.exe"
@@ -133,17 +135,15 @@ def make_zip(root: Path) -> Path:
     shutil.rmtree(package, ignore_errors=True)
     package.mkdir(parents=True, exist_ok=True)
     shutil.copy2(exe, package / "factory.exe")
-    for name in ("config", "schemas", "examples"):
+    for name in ("config", "schemas", "examples", "docs"):
         shutil.copytree(root / name, package / name, dirs_exist_ok=True)
-    for name in ("README.md", "LICENSE"):
+    for name in ("README.md", "LICENSE", "project.json"):
         if (root / name).exists():
             shutil.copy2(root / name, package / name)
     for name in ("install.ps1", "uninstall.ps1"):
         src = root / "scripts" / name
         if src.exists():
             shutil.copy2(src, package / name)
-    if (root / "docs" / "REGION_PROTOCOL.md").exists():
-        shutil.copy2(root / "docs" / "REGION_PROTOCOL.md", package / "REGION_PROTOCOL.md")
     zip_path = root / "dist" / "factory-core-win.zip"
     zip_path.unlink(missing_ok=True)
     shutil.make_archive(str(zip_path.with_suffix("")), "zip", root_dir=package)
@@ -340,7 +340,12 @@ def _release_body() -> str:
         "- Подвижные (динамические) домены: config/domains.toml + профили, горячая перезагрузка.\n"
         "- Диспетчер задач invr.task/1: план → исполнение, режим auto/semi, журнал, очередь.\n"
         "- Адаптеры: Lab100, INVR-Tools, локальная LLM (Ollama), регион (region-spoof).\n"
-        "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов), трей.\n"
+        "- Инвентаризация (этап 0): карта «что умеем» по 4 репозиториям (factory inventory).\n"
+        "- Квоты исполнителей Lab100 (этап 4): лимиты и расход (factory quotas, дашборд).\n"
+        "- Интеграции (этап 3): backup-util → ChangeId, orch-metrics → метрики.\n"
+        "- Супервизия (этап 5): watchdog — авто-восстановление зависших задач и reload доменов.\n"
+        "- Единый журнал (§8.4): factory ledger; манифест проекта (§8.1): project.json.\n"
+        "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов, квоты, мониторинг), трей.\n"
         "- Языки интерфейсов: русский (по умолчанию), English, 中文 (ui.lang).\n"
         "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1.\n"
         "- Автоматический релиз: factory release (без credential-окон Git)."

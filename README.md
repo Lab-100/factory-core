@@ -92,6 +92,17 @@ python -m factory auth logout
 python -m factory release            # v<версия из pyproject.toml>
 python -m factory release --draft    # черновик
 python -m factory release --no-build # использовать уже собранный dist/ (без PyInstaller)
+
+# инвентаризация, квоты, супервизия, единый журнал, манифест
+python -m factory inventory           # карта «что умеем»: инструменты/провайдеры/регионы (этап 0)
+python -m factory inventory --json    # та же карта в JSON
+python -m factory quotas              # лимиты и расход исполнителей Lab100 (этап 4)
+python -m factory quotas --reset exa  # сбросить зеркальный учёт (без аргумента — по всем)
+python -m factory watchdog --once     # супервизия: проверка и авто-восстановление (этап 5)
+python -m factory watchdog            # непрерывное наблюдение (Ctrl+C для остановки)
+python -m factory ledger --limit 50   # единый журнал: задачи/шаги/изменения/watchdog (§8.4)
+python -m factory ledger --kind change # фильтр по типу события
+python -m factory manifest            # манифест фабрики project.json (invr.project/1) (§8.1)
 ```
 
 ## Автовход и релизы
@@ -109,6 +120,31 @@ python -m factory release --no-build # использовать уже собр�
 - Windows-установка: распакуйте `factory-core-win.zip` из релиза и запустите
   `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
   в PATH и меню «Пуск».
+
+## Инвентаризация, квоты, супервизия и единый журнал
+
+Полнота фабрики по дорожной карте (см. [`docs/ROADMAP.md`](docs/ROADMAP.md)):
+
+- **Инвентаризация (этап 0)** — `factory inventory` обходит 4 репозитория и строит
+  карту «что умеем»: версионированные инструменты и шимы (`scripts-tools`),
+  стадии развёртывания (`devstation-deploy`), провайдеров/компетенции/квоты
+  (`Lab100`), регионы (`region-spoof`). Карта сохраняется в `state/inventory.json`
+  и доступна в дашборде (`/api/inventory`).
+- **Квоты (этап 4)** — `factory quotas` читает лимиты из `Lab100/config/agents.toml`
+  (`[quota.*]`) и ведёт зеркальный учёт расхода (`state/quotas.json`), который
+  диспетчер пополняет по факту шагов: провайдер берётся из задачи, а иначе — из
+  фактического вывода Lab100 (`источник: …`). Доступно в дашборде (`/api/quotas`).
+- **Интеграции (этап 3)** — `backup-util` выдаёт `ChangeId` для изменённых файлов
+  (при отсутствии шима — локальный `ChangeId`, `source: local`); `orch-metrics`
+  принимает метрики шага (при отсутствии шима — `state/metrics.jsonl`).
+  Всё пишется в единый журнал.
+- **Супервизия (этап 5)** — `factory watchdog` наблюдает за адаптерами, снимает
+  зависшие задачи (`job-timeout`), перезагружает домены при изменении
+  `config/domains.toml`/профилей и пишет события в `state/watchdog.jsonl` и ledger.
+- **Единый журнал (§8.4)** — `factory ledger` показывает поток событий
+  (`task.start`/`step`/`change`/`watchdog`/`task.done`) в одной ленте.
+- **Манифест (§8.1)** — `project.json` (`invr.project/1`) связывает 4 репозитория,
+  контракты и точки входа в один проект; `factory manifest` его печатает.
 
 ## Языки интерфейсов
 

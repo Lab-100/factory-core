@@ -22,6 +22,7 @@ class Task:
     constraints: dict = field(default_factory=dict)
     automation: str | None = None
     acceptance: list[str] = field(default_factory=list)
+    on_change: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> "Task":
@@ -42,6 +43,7 @@ class Task:
             constraints=dict(data.get("constraints", {}) or {}),
             automation=data.get("automation"),
             acceptance=list(data.get("acceptance", []) or []),
+            on_change=str(data.get("on_change", "") or ""),
         )
 
     @classmethod
@@ -67,4 +69,5 @@ class Task:
             "constraints": self.constraints,
             "automation": self.automation,
             "acceptance": self.acceptance,
+            "on_change": self.on_change,
         }

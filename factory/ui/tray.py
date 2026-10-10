@@ -46,6 +46,29 @@ def serve() -> int:
     def reload_domains(icon, item):  # noqa: ANN001, ARG001
         registry.reload()
 
+    def reload_domains(icon, item):  # noqa: ANN001, ARG001
+        registry.reload()
+
+    def show_quotas(icon, item):  # noqa: ANN001, ARG001
+        from .. import quotas
+        providers = (quotas.build(settings).get("providers")) or {}
+        if not providers:
+            icon.notify(tr("quotas.empty"), tr("tray.quotas"))
+            return
+        lines = [
+            tr("tray.quota_line", provider=provider,
+               remaining=("∞" if row["remaining"] is None else row["remaining"]))
+            for provider, row in providers.items()
+        ]
+        icon.notify("\n".join(lines), tr("tray.quotas"))
+
+    def show_inventory(icon, item):  # noqa: ANN001, ARG001
+        from .. import inventory
+        summary = inventory.build(settings)["summary"]
+        icon.notify(tr("tray.inventory_line", present=summary["repos_present"],
+                       total=summary["repos_total"], tools=summary["tools"]),
+                    tr("tray.inventory"))
+
     def quit_app(icon, item):  # noqa: ANN001, ARG001
         icon.stop()
 
@@ -53,6 +76,8 @@ def serve() -> int:
         pystray.MenuItem(lambda item: tr("tray.automation", mode=settings.automation), toggle_automation),
         pystray.MenuItem(tr("tray.open_web"), open_web),
         pystray.MenuItem(tr("tray.reload"), reload_domains),
+        pystray.MenuItem(tr("tray.quotas"), show_quotas),
+        pystray.MenuItem(tr("tray.inventory"), show_inventory),
         pystray.MenuItem(tr("tray.quit"), quit_app),
     )
     icon = pystray.Icon("factory-core", image, "Фабрика Lab-100", menu)

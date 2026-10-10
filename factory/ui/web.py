@@ -11,6 +11,8 @@
   GET  /api/domains               — домены
   GET  /api/domains/toggle?name=&enabled=
   GET  /api/ledger                — журнал
+  GET  /api/quotas                — квоты исполнителей Lab100 (этап 4)
+  GET  /api/inventory             — карта «что умеем» (этап 0)
   GET  /api/jobs                  — очередь задач
   GET  /api/jobs/get?id=
   POST /api/run                   — запустить задачу (JSON invr.task/1)
@@ -64,11 +66,16 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
  <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
+ <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
+ <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
 </main>
 <script>
 const T={
  req:'{{t_goal_required}}',start:'{{t_task_started}}',err:'{{t_error}}',
  thStatus:'{{t_th_status}}',thGoal:'{{t_th_goal}}',thDomain:'{{t_th_domain}}',
+ thProvider:'{{t_th_provider}}',thWindow:'{{t_th_window}}',thLimit:'{{t_th_limit}}',
+ thUsed:'{{t_th_used}}',thRemaining:'{{t_th_remaining}}',noData:'{{t_no_data}}',
+ invSummary:'{{t_inventory_summary}}',
  appr:'{{t_btn_approve}}',skip:'{{t_btn_skip}}',
  profile:'{{t_profile}}',automation:'{{t_automation}}',current:'{{t_current}}',
  uiLabel:'{{t_ui_label}}',thName:'{{t_th_name}}',thPriority:'{{t_th_priority}}',
@@ -137,7 +144,23 @@ async function load(){
  const l=await j('/api/ledger');
  document.getElementById('ledger').innerHTML='<pre>'+l.events.map(e=>esc(JSON.stringify(e))).join('\\n')+'</pre>';
 }
-load();loadJobs();
+async function loadQuotas(){
+ const q=await j('/api/quotas');
+ const box=document.getElementById('quotas');
+ if(q.available===false){box.innerHTML='<p>'+esc(q.note||'')+'</p>';return}
+ const rows=Object.entries(q.providers||{});
+ if(!rows.length){box.innerHTML='<p>'+T.noData+'</p>';return}
+ box.innerHTML='<table><tr><th>'+T.thProvider+'</th><th>'+T.thWindow+'</th><th>'+T.thLimit+'</th><th>'+T.thUsed+'</th><th>'+T.thRemaining+'</th></tr>'+
+  rows.map(([p,r])=>`<tr><td>${esc(p)}</td><td>${esc(r.window)}</td><td>${r.limit==null?'∞':r.limit}</td><td>${r.used}</td><td>${r.remaining==null?'∞':r.remaining}${r.percent==null?'':' ('+r.percent+'%)'}</td></tr>`).join('')+'</table>';
+}
+async function loadMonitoring(){
+ const inv=await j('/api/inventory');
+ const s=(inv&&inv.summary)||{};
+ document.getElementById('monitor').innerHTML='<p>'+esc(T.invSummary
+  .replace('{present}',s.repos_present??0).replace('{total}',s.repos_total??0)
+  .replace('{tools}',s.tools??0).replace('{providers}',s.providers??0))+'</p>';
+}
+load();loadJobs();loadQuotas();loadMonitoring();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -176,6 +199,15 @@ def _page(lang: str) -> str:
         "t_on": tr("web.on"),
         "t_off": tr("web.off"),
         "t_lang": tr("web.lang"),
+        "t_quotas": tr("web.quotas"),
+        "t_monitoring": tr("web.monitoring"),
+        "t_th_provider": tr("web.th_provider"),
+        "t_th_window": tr("web.th_window"),
+        "t_th_limit": tr("web.th_limit"),
+        "t_th_used": tr("web.th_used"),
+        "t_th_remaining": tr("web.th_remaining"),
+        "t_inventory_summary": tr("web.inventory_summary"),
+        "t_no_data": tr("web.no_data"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -244,6 +276,15 @@ def _handler_class():
                 return self._send({"ok": True, "name": name, "enabled": enabled})
             if path == "/api/ledger":
                 return self._send({"events": ledger.tail(100)})
+            if path == "/api/quotas":
+                from .. import quotas
+                data = quotas.build(settings)
+                if not data.get("available"):
+                    data["note"] = make_translator(settings)("quotas.not_available")
+                return self._send(data)
+            if path == "/api/inventory":
+                from .. import inventory
+                return self._send(inventory.load_saved(settings) or inventory.build(settings))
             if path == "/api/jobs":
                 return self._send({"jobs": [_jobs().summary(j) for j in _jobs().list()]})
             if path == "/api/jobs/get":

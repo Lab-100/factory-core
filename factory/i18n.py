@@ -200,7 +200,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         # журнал / манифест (быстрые победы §8)
         "cmd.ledger": "единый журнал фабрики",
         "arg.ledger.limit": "сколько последних событий показать",
-        "arg.ledger.kind": "фильтр по типу события (task.start, step, change, watchdog, …)",
+        "arg.ledger.kind": "фильтр по типу события (task.start, step, metrics, quota, change, catalog, watchdog, …)",
         "ledger.title": "Единый журнал (последние {count})",
         "ledger.empty": "Журнал пуст.",
         "ledger.line": "{ts} · {kind} · {detail}",
@@ -374,7 +374,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         # ledger / manifest (quick wins, §8)
         "cmd.ledger": "unified factory ledger",
         "arg.ledger.limit": "how many recent events",
-        "arg.ledger.kind": "filter by event kind (task.start, step, change, watchdog, ...)",
+        "arg.ledger.kind": "filter by event kind (task.start, step, metrics, quota, change, catalog, watchdog, ...)",
         "ledger.title": "Unified ledger (last {count})",
         "ledger.empty": "Ledger is empty.",
         "ledger.line": "{ts} · {kind} · {detail}",
@@ -546,7 +546,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         # 日志 / 清单文件（快速成效 §8）
         "cmd.ledger": "统一工厂日志",
         "arg.ledger.limit": "显示的最近事件数",
-        "arg.ledger.kind": "按事件类型过滤（task.start、step、change、watchdog…）",
+        "arg.ledger.kind": "按事件类型过滤（task.start、step、metrics、quota、change、catalog、watchdog…）",
         "ledger.title": "统一日志（最近 {count} 条）",
         "ledger.empty": "日志为空。",
         "ledger.line": "{ts} · {kind} · {detail}",

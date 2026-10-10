@@ -74,7 +74,10 @@ def version() -> str:
         val = data.get("project", {}).get("version")
         if val:
             return str(val)
-    return "0.1.0"
+    # вне исходников (например, в сборке) опираемся на версию пакета
+    from . import __version__ as package_version
+
+    return package_version
 
 
 def api(method: str, url: str, token: str, data=None, content_type: str | None = None) -> tuple[int, dict | list]:
@@ -342,9 +345,13 @@ def _release_body() -> str:
         "- Адаптеры: Lab100, INVR-Tools, локальная LLM (Ollama), регион (region-spoof).\n"
         "- Инвентаризация (этап 0): карта «что умеем» по 4 репозиториям (factory inventory).\n"
         "- Квоты исполнителей Lab100 (этап 4): лимиты и расход (factory quotas, дашборд).\n"
-        "- Интеграции (этап 3): backup-util → ChangeId, orch-metrics → метрики.\n"
+        "- Интеграции (этап 3): backup-util → ChangeId, orch-metrics → метрики,\n"
+        "  infra-graph → карта потока работ (§4.7).\n"
+        "- Инструменты склада (§4.5): прямой вызов шимов INVR (task.tools, use_domain_tools).\n"
+        "- Каталог артефактов (§5.6): task.json/result.json/report.md по домену (catalog/).\n"
         "- Супервизия (этап 5): watchdog — авто-восстановление зависших задач и reload доменов.\n"
-        "- Единый журнал (§8.4): factory ledger; манифест проекта (§8.1): project.json.\n"
+        "- Единый журнал (§8.4): задачи, шаги, метрики, квоты, изменения и каталог\n"
+        "  артефактов в одной ленте (factory ledger). Манифест (§8.1): project.json.\n"
         "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов, квоты, мониторинг), трей.\n"
         "- Языки интерфейсов: русский (по умолчанию), English, 中文 (ui.lang).\n"
         "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1.\n"

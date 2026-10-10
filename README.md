@@ -22,7 +22,8 @@
    подтверждения оператора. Переключается в меню настроек.
 3. **Два интерфейса.** CLI всегда доступен; дашборд — `web` или `tray`
    (выбор пользователя в настройках).
-4. **Единый журнал** `state/ledger.jsonl` — задачи, шаги, квоты, откаты.
+4. **Единый журнал** `state/ledger.jsonl` — задачи, шаги, инструменты, метрики,
+   квоты, откаты и каталог артефактов в одной ленте.
 
 ## Архитектура
 
@@ -100,9 +101,12 @@ python -m factory quotas              # лимиты и расход испол�
 python -m factory quotas --reset exa  # сбросить зеркальный учёт (без аргумента — по всем)
 python -m factory watchdog --once     # супервизия: проверка и авто-восстановление (этап 5)
 python -m factory watchdog            # непрерывное наблюдение (Ctrl+C для остановки)
-python -m factory ledger --limit 50   # единый журнал: задачи/шаги/изменения/watchdog (§8.4)
-python -m factory ledger --kind change # фильтр по типу события
+python -m factory ledger --limit 50   # единый журнал: задачи/шаги/метрики/квоты/изменения (§8.4)
+python -m factory ledger --kind quota # фильтр по типу события (quota, metrics, change, catalog, …)
 python -m factory manifest            # манифест фабрики project.json (invr.project/1) (§8.1)
+
+# задача с вызовом инструментов-шимов склада INVR (§4.5)
+python -m factory run examples/task.tools.json --dry-run
 ```
 
 ## Автовход и релизы
@@ -134,15 +138,26 @@ python -m factory manifest            # манифест фабрики project.
   (`[quota.*]`) и ведёт зеркальный учёт расхода (`state/quotas.json`), который
   диспетчер пополняет по факту шагов: провайдер берётся из задачи, а иначе — из
   фактического вывода Lab100 (`источник: …`). Доступно в дашборде (`/api/quotas`).
+- **Инструменты склада (§4.5)** — задача может вызвать шимы INVR напрямую: поле
+  `tools` (`["doc-extract", {"name": "browsertool", "args": [...]}]`) или флаг
+  `constraints.use_domain_tools` (взять инструменты подошедшего домена). По
+  умолчанию автозапуск выключен — в реестре есть не-исполняемые ключи.
 - **Интеграции (этап 3)** — `backup-util` выдаёт `ChangeId` для изменённых файлов
   (при отсутствии шима — локальный `ChangeId`, `source: local`); `orch-metrics`
-  принимает метрики шага (при отсутствии шима — `state/metrics.jsonl`).
-  Всё пишется в единый журнал.
+  принимает метрики шага (иначе — `state/metrics.jsonl`); `infra-graph` получает
+  карту потока работ (иначе — `state/infra.jsonl`). Факт каждой интеграции
+  дублируется событием в единый журнал.
+- **Каталог артефактов (§5.6)** — по завершении задачи диспетчер пишет
+  `task.json`, `result.json` и `report.md` в каталог домена
+  (`catalog/<домен>/<задача>`, переопределяется `outputs.catalog`); путь попадает
+  в результат и в журнал.
 - **Супервизия (этап 5)** — `factory watchdog` наблюдает за адаптерами, снимает
   зависшие задачи (`job-timeout`), перезагружает домены при изменении
   `config/domains.toml`/профилей и пишет события в `state/watchdog.jsonl` и ledger.
 - **Единый журнал (§8.4)** — `factory ledger` показывает поток событий
-  (`task.start`/`step`/`change`/`watchdog`/`task.done`) в одной ленте.
+  (`task.start`/`step`/`metrics`/`quota`/`change`/`catalog`/`watchdog`/`task.done`)
+  в одной ленте: квоты Lab100, метрики orch-metrics и ChangeId backup-util
+  сливаются в один файл.
 - **Манифест (§8.1)** — `project.json` (`invr.project/1`) связывает 4 репозитория,
   контракты и точки входа в один проект; `factory manifest` его печатает.
 

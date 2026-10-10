@@ -18,10 +18,6 @@ def _seed_bundled(root: Path) -> None:
     meipass = Path(getattr(sys, "_MEIPASS", ""))
     if not meipass.is_dir():
         return
-def _seed_bundled(root: Path) -> None:
-    meipass = Path(getattr(sys, "_MEIPASS", ""))
-    if not meipass.is_dir():
-        return
     for name in ("config", "schemas", "examples", "docs"):
         src = meipass / name
         dst = root / name

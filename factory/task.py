@@ -17,6 +17,7 @@ class Task:
     operator: str = ""
     domain: str | None = None
     capabilities: list[str] = field(default_factory=list)
+    tools: list = field(default_factory=list)
     inputs: dict = field(default_factory=dict)
     outputs: dict = field(default_factory=dict)
     constraints: dict = field(default_factory=dict)
@@ -38,6 +39,7 @@ class Task:
             operator=str(data.get("operator", "")),
             domain=data.get("domain") or None,
             capabilities=list(data.get("capabilities", []) or []),
+            tools=list(data.get("tools", []) or []),
             inputs=dict(data.get("inputs", {}) or {}),
             outputs=dict(data.get("outputs", {}) or {}),
             constraints=dict(data.get("constraints", {}) or {}),
@@ -64,6 +66,7 @@ class Task:
             "domain": self.domain,
             "goal": self.goal,
             "capabilities": self.capabilities,
+            "tools": self.tools,
             "inputs": self.inputs,
             "outputs": self.outputs,
             "constraints": self.constraints,

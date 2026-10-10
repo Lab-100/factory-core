@@ -28,7 +28,7 @@ class IntegrationsTest(unittest.TestCase):
 
     def test_build(self) -> None:
         integrations = build_integrations(self.settings)
-        self.assertEqual(set(integrations), {"backup", "metrics"})
+        self.assertEqual(set(integrations), {"backup", "metrics", "infra"})
 
     def test_backup_local_fallback(self) -> None:
         backup = BackupIntegration(self.settings)
@@ -53,6 +53,15 @@ class IntegrationsTest(unittest.TestCase):
         record = json.loads(metrics_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(record["task"], "t1")
         self.assertIn("ts", record)
+
+    def test_infra_local_sink(self) -> None:
+        integrations = build_integrations(self.settings)
+        result = integrations["infra"].emit({"kind": "flow", "task": "t1", "tools": ["doc-extract"]})
+        self.assertEqual(result["sink"], "local")
+        self.assertTrue(result["ok"])
+        path = self.root / "state" / "infra.jsonl"
+        self.assertTrue(path.exists())
+        self.assertIn("doc-extract", path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

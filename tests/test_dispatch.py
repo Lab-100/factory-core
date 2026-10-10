@@ -20,6 +20,7 @@ match_by = "auto"
 enabled = true
 priority = 50
 capabilities = ["web-search", "answer"]
+tools = ["doc-extract"]
 region = "auto"
 llm = []
 
@@ -60,10 +61,11 @@ class DispatcherTest(unittest.TestCase):
     def _make(self, automation: str = "auto"):
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)
+        (root / "config").mkdir()
         base = root / "domains.toml"
         base.write_text(BASE, encoding="utf-8")
         registry = DomainRegistry(base, [])
-        settings = Settings(root / "settings.toml", dict(SETTINGS))
+        settings = Settings(root / "config" / "settings.toml", dict(SETTINGS))
         settings.set("automation.mode", automation)
         ledger = Ledger(root / "ledger.jsonl")
         adapters = {"lab100": FakeAdapter(settings), "llm_local": FakeLlm(settings)}
@@ -141,8 +143,116 @@ class DispatcherTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_tool_steps_from_task(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="извлеки текст", capabilities=["answer"],
+                        tools=["doc-extract", {"name": "browsertool", "args": ["--url", "x"]}])
+            _, steps = dispatcher.plan(task)
+            tools = {s.params.get("tool"): s for s in steps if s.adapter == "invr"}
+            self.assertEqual(set(tools), {"doc-extract", "browsertool"})
+            self.assertEqual(tools["browsertool"].params["args"], ["--url", "x"])
+            self.assertEqual(tools["doc-extract"].action, "run")
+            self.assertEqual(tools["doc-extract"].capability, "tool:doc-extract")
+        finally:
+            tmp.cleanup()
+
+    def test_domain_tools_only_on_opt_in(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            plain = Task(goal="извлеки", capabilities=["answer"])
+            _, steps = dispatcher.plan(plain)
+            self.assertFalse(any(s.adapter == "invr" for s in steps))
+
+            opted = Task(goal="извлеки", capabilities=["answer"],
+                         constraints={"use_domain_tools": True})
+            _, steps2 = dispatcher.plan(opted)
+            self.assertTrue(any(s.adapter == "invr" and s.params.get("tool") == "doc-extract"
+                                for s in steps2))
+        finally:
+            tmp.cleanup()
+
+    def test_catalog_artifacts_written(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди данные", capabilities=["answer"])
+            result = dispatcher.execute(task, dry_run=False)
+            self.assertIn("catalog", result)
+            target = Path(tmp.name) / result["catalog"]
+            self.assertTrue((target / "task.json").exists())
+            self.assertTrue((target / "result.json").exists())
+            self.assertTrue((target / "report.md").exists())
+        finally:
+            tmp.cleanup()
+
+    def test_catalog_explicit_path_used(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди", capabilities=["answer"],
+                        outputs={"catalog": "catalog/custom/run-1"})
+            result = dispatcher.execute(task, dry_run=False)
+            self.assertEqual(result["catalog"], "catalog/custom/run-1")
+            self.assertTrue((Path(tmp.name) / "catalog" / "custom" / "run-1" / "report.md").exists())
+        finally:
+            tmp.cleanup()
+
+    def test_dry_run_writes_no_catalog(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди", capabilities=["answer"])
+            result = dispatcher.execute(task, dry_run=True)
+            self.assertNotIn("catalog", result)
+            self.assertFalse((Path(tmp.name) / "catalog").exists())
+        finally:
+            tmp.cleanup()
+
+    def test_quota_logged_to_ledger(self) -> None:
+        tmp, _, dispatcher = self._make_isolated()
+        try:
+            task = Task(goal="найди", capabilities=["web-search"], inputs={"provider": "exa"})
+            dispatcher.execute(task)
+            quota_events = [e for e in dispatcher.ledger.tail(20) if e.get("kind") == "quota"]
+            self.assertEqual(len(quota_events), 1)
+            self.assertEqual(quota_events[0]["provider"], "exa")
+            self.assertEqual(quota_events[0]["used"], 1)
+        finally:
+            tmp.cleanup()
+
+    def test_metrics_and_infra_reach_ledger(self) -> None:
+        """Интеграции без шимов пишут локально и попадают в единый журнал (§8.4)."""
+        from factory.integrations import build_integrations
+
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / "config").mkdir()
+            (root / "tools").mkdir()
+            domains_file = root / "config" / "domains.toml"
+            domains_file.write_text(
+                'schema = "invr.factory.domains/1"\nmatch_by = "auto"\n'
+                '[domain.research]\nenabled = true\npriority = 50\n'
+                'capabilities = ["web-search"]\n',
+                encoding="utf-8",
+            )
+            registry = DomainRegistry(domains_file, [])
+            settings = Settings(root / "config" / "settings.toml", {
+                "automation": {"mode": "auto", "semi": {"checkpoints": []}},
+                "adapters": {"invr_root": str(root / "tools")},
+            })
+            ledger = Ledger(root / "ledger.jsonl")
+            dispatcher = Dispatcher(settings, registry, ledger,
+                                    adapters={"lab100": FakeAdapter(settings)},
+                                    integrations=build_integrations(settings))
+            dispatcher.execute(Task(goal="найди", capabilities=["web-search"]))
+            kinds = [e.get("kind") for e in ledger.tail(30)]
+            self.assertIn("metrics", kinds)
+            self.assertTrue((root / "state" / "metrics.jsonl").exists())
+            self.assertTrue((root / "state" / "infra.jsonl").exists())
+        finally:
+            tmp.cleanup()
+
     def _make_isolated(self, adapter_cls=FakeAdapter):
-        """Диспетчер в изолированном каталоге (проверка записи квот)."""
+        """Диспетчер в изолированном каталоге (проверка записи квот и каталога)."""
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)
         (root / "config").mkdir()

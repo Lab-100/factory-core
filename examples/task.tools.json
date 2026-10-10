@@ -1,0 +1,13 @@
+{
+  "schema": "invr.task/1",
+  "id": "task-tools-001",
+  "operator": "HGZ",
+  "domain": "docs",
+  "goal": "Извлечь текст из документа и собрать краткую выжимку",
+  "capabilities": ["answer"],
+  "tools": ["doc-extract", { "name": "browsertool", "args": ["--url", "https://example.org"] }],
+  "inputs": { "note": "явный список шимов склада INVR (§4.5)" },
+  "outputs": { "catalog": "catalog/docs/extract" },
+  "constraints": { "prefer": "local-only", "use_domain_tools": false },
+  "acceptance": ["документ обработан", "результат сохранён в каталог"]
+}

@@ -16,6 +16,24 @@
       "items": { "type": "string" },
       "description": "Требуемые компетенции: web-search, deep-research, scrape, code, vision, answer, region-switch"
     },
+    "tools": {
+      "type": "array",
+      "description": "Вызвать инструменты склада INVR (шимы) напрямую (§4.5). Элемент — имя шима или объект {name, args, timeout_s}.",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "timeout_s": { "type": "number" }
+            }
+          }
+        ]
+      }
+    },
     "inputs": { "type": "object" },
     "outputs": {
       "type": "object",
@@ -29,6 +47,7 @@
       "properties": {
         "prefer": { "type": "string", "enum": ["local+free", "local-only", "best-quality"] },
         "allow_region_switch": { "type": "boolean" },
+        "use_domain_tools": { "type": "boolean", "description": "Если заданы инструменты домена и нет явных tools — вызвать их шимы" },
         "max_cloud_cost": { "type": "number" }
       }
     },

@@ -264,8 +264,14 @@ def _ledger_detail(event: dict) -> str:
         parts.append(f"ok={event['ok']}")
     if event.get("adapter"):
         parts.append(f"adapter={event['adapter']}")
+    if event.get("provider"):
+        parts.append(f"provider={event['provider']}")
+    if event.get("sink"):
+        parts.append(f"sink={event['sink']}")
     if event.get("change_id"):
         parts.append(f"change={event['change_id']}")
+    if event.get("catalog"):
+        parts.append(f"catalog={event['catalog']}")
     if event.get("actions"):
         parts.append("actions=" + ",".join(str(a.get("action", "?")) for a in event["actions"]))
     return ", ".join(parts)

@@ -56,6 +56,7 @@ region_repo = ""         # каталог region-spoof; пусто — env REGIO
 deploy_dir = ""          # каталог devstation-deploy; пусто — env DEVSTATION_DEPLOY_DIR / рядом
 backup_enabled = true    # учитывать изменения через backup-util (ChangeId) — этап 3
 metrics_enabled = true   # отправлять метрики в orch-metrics — этап 3
+infra_enabled = true     # карта сервисов/потока через infra-graph — §4.7
 
 [inventory]
 # Карта «что умеем» (этап 0); сохраняется командой `factory inventory`
@@ -68,6 +69,10 @@ path = "state/quotas.json"
 [metrics]
 # Локальный приёмник метрик, если orch-metrics недоступен
 path = "state/metrics.jsonl"
+
+[infra]
+# Локальный приёмник карты потока, если infra-graph недоступен
+path = "state/infra.jsonl"
 
 [watchdog]
 # Супервизия (этап 5): период опроса и порог «зависшей» задачи, секунды

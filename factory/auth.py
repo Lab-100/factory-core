@@ -25,8 +25,9 @@ from pathlib import Path
 
 from .i18n import make_translator
 
-CLIENT_ID = "178c6fc778ccc68e1d6a"  # приложение GitHub CLI (device flow), scope public_repo
-SCOPE = "public_repo"
+CLIENT_ID = "178c6fc778ccc68e1d6a"  # приложение GitHub CLI (device flow)
+# public_repo — запись в публичные репозитории; workflow — файлы .github/workflows (CI).
+SCOPE = "public_repo,workflow"
 GITHUB_API = "https://api.github.com"
 _DEVICE_URL = "https://github.com/login/device/code"
 _TOKEN_URL = "https://github.com/login/oauth/access_token"

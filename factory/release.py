@@ -180,7 +180,7 @@ def _try_git_push(push_url: str, root: Path, ref: str, timeout: int = 60) -> boo
     env.setdefault("GCM_INTERACTIVE", "Never")
     try:
         proc = subprocess.run(
-            ["git", "-c", "credential.helper=", "push", push_url, ref],
+            ["git", "-c", "credential.helper=", "push", "--force", push_url, ref],
             cwd=str(root), capture_output=True, text=True, timeout=timeout, env=env)
         return proc.returncode == 0
     except subprocess.TimeoutExpired:
@@ -259,7 +259,7 @@ def _push_and_tag(token: str, repo: str, root: Path, tag: str, push_url: str, lo
     if _try_git_push(push_url, root, "HEAD:main"):
         log(tr("rel.push_git"))
         head = _git(root, "rev-parse", "HEAD").stdout.strip()
-        _git(root, "tag", "-a", tag, "-m", f"Фабрика Lab-100 {tag}")
+        _git(root, "tag", "-f", "-a", tag, "-m", f"Фабрика Lab-100 {tag}")
         if not _try_git_push(push_url, root, tag):
             log(tr("rel.tag_git_fail"))
             _api_create_ref(token, repo, f"tags/{tag}", head)

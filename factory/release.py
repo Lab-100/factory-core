@@ -196,6 +196,23 @@ def _api_create_ref(token: str, repo: str, ref: str, sha: str) -> None:
             {"sha": sha, "force": True})
 
 
+def _api_bootstrap(token: str, repo: str, log) -> None:
+    """Пустой репозиторий GitHub не даёт создавать blob'ы, пока нет коммита —
+    создаём стартовый пустой коммит в ветке main."""
+    log("   репозиторий пуст — создаю стартовый коммит")
+    status, tree_data = api("POST", f"{GITHUB_API}/repos/{repo}/git/trees", token, {"tree": []})
+    if status >= 300:
+        raise RuntimeError(f"не удалось создать пустое дерево: {tree_data}")
+    status, commit_data = api("POST", f"{GITHUB_API}/repos/{repo}/git/commits", token, {
+        "message": "Фабрика Lab-100 — начальный коммит",
+        "tree": tree_data["sha"],
+        "parents": [],
+    })
+    if status >= 300:
+        raise RuntimeError(f"не удалось создать начальный коммит: {commit_data}")
+    _api_create_ref(token, repo, "heads/main", commit_data["sha"])
+
+
 def _api_push(token: str, repo: str, root: Path, log, tr) -> str:
     """Пуш всех отслеживаемых файлов через Git Data API (без git-протокола).
     Возвращает sha созданного коммита на remote."""
@@ -208,10 +225,14 @@ def _api_push(token: str, repo: str, root: Path, log, tr) -> str:
         path = root / rel
         if not path.is_file():
             continue
-        status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/blobs", token, {
+        payload = {
             "content": base64.b64encode(path.read_bytes()).decode("ascii"),
             "encoding": "base64",
-        })
+        }
+        status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/blobs", token, payload)
+        if status == 409 and "empty" in str(data.get("message", "")).lower():
+            _api_bootstrap(token, repo, log)
+            status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/blobs", token, payload)
         if status >= 300:
             raise RuntimeError(f"не удалось загрузить blob {rel}: {data}")
         blobs[rel] = data["sha"]
@@ -221,10 +242,14 @@ def _api_push(token: str, repo: str, root: Path, log, tr) -> str:
                        {"tree": tree})
     if status >= 300:
         raise RuntimeError(f"не удалось создать tree: {data}")
+    parents: list[str] = []
+    status, ref_data = api("GET", f"{GITHUB_API}/repos/{repo}/git/ref/heads/main", token)
+    if status == 200:
+        parents = [ref_data["object"]["sha"]]
     status, data = api("POST", f"{GITHUB_API}/repos/{repo}/git/commits", token, {
         "message": "Фабрика Lab-100 — автоматический выпуск (Git Data API)",
         "tree": data["sha"],
-        "parents": [],
+        "parents": parents,
     })
     if status >= 300:
         raise RuntimeError(f"не удалось создать commit: {data}")
@@ -318,6 +343,7 @@ def _release_body() -> str:
         "- Диспетчер задач invr.task/1: план → исполнение, режим auto/semi, журнал, очередь.\n"
         "- Адаптеры: Lab100, INVR-Tools, локальная LLM (Ollama), регион (region-spoof).\n"
         "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов), трей.\n"
+        "- Языки интерфейсов: русский (по умолчанию), English, 中文 (ui.lang).\n"
         "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1.\n"
-        "- Автоматический релиз: factory release."
+        "- Автоматический релиз: factory release (без credential-окон Git)."
     )

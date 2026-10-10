@@ -1,0 +1,87 @@
+# factory-core — «Фабрика Lab-100»
+
+Единый верхний слой (пульт + диспетчер), который связывает существующие репозитории
+в одно «предприятие» для выполнения задач оператора в разных областях знаний.
+
+**Исходные репозитории не изменяются и не поглощаются** — фабрика только управляет ими:
+
+| Компонент | Роль | Репозиторий |
+|---|---|---|
+| Склад инструментов | версионированные инструменты + шимы | `Lab-100/scripts-tools` |
+| Монтаж/наладка | развёртывание инфраструктуры | `Lab-100/devstation-deploy` |
+| Цех исполнителей (ИИ) | пул агентов, компетенции, квоты | `Lab-100/Lab100` |
+| Логистика/доступ | смена региона для заблокированных ресурсов | `Lab-100/region-spoof` |
+
+## Ключевые принципы
+
+1. **Подвижные (динамические) домены.** Домены описаны в `config/domains.toml`,
+   а не в коде: включаются/выключаются, меняют приоритет, добавляются новые —
+   через конфиг и профили, с горячей перезагрузкой (`reload`) без рестарта.
+2. **Автоматизация по умолчанию, полуавтомат — по настройке.** Режим `auto`
+   выполняет всю цепочку; `semi` останавливается на контрольных точках и ждёт
+   подтверждения оператора. Переключается в меню настроек.
+3. **Два интерфейса.** CLI всегда доступен; дашборд — `web` или `tray`
+   (выбор пользователя в настройках).
+4. **Единый журнал** `state/ledger.jsonl` — задачи, шаги, квоты, откаты.
+
+## Архитектура
+
+```
+Пульт (CLI / web / tray)
+        │  заказ-наряд invr.task/1
+        ▼
+Диспетчер (factory.dispatch)
+   │ домены → план → исполнители → артефакты
+   ▼
+Адаптеры: lab100 (пул ИИ) · invr (шимы) · llm_local (ollama) · region (region-spoof)
+        │
+        ▼
+Единый журнал + каталог артефактов
+```
+
+## Структура
+
+```
+factory-core/
+  config/
+    settings.toml        настройки (режим, интерфейс, пути)
+    domains.toml         БАЗОВЫЕ домены (подвижные)
+    profiles/default.toml наложения профиля на домены
+  schemas/invr.task.schema.json
+  factory/
+    settings.py  domains.py  task.py  ledger.py  dispatch.py
+    adapters/    base.py lab100.py invr_tool.py llm_local.py region.py
+    ui/          cli.py web.py tray.py
+  tests/
+```
+
+## Быстрый старт
+
+```bash
+# статус и домены
+python -m factory status
+python -m factory domains list
+python -m factory domains disable docs
+
+# настройки
+python -m factory settings get automation.mode
+python -m factory settings set automation.mode semi
+python -m factory settings set ui.mode web
+
+# запуск задачи из файла
+python -m factory run examples/task.example.json --dry-run
+
+# интерфейсы
+python -m factory ui --mode cli     # текущий
+python -m factory ui --mode web     # дашборд http://127.0.0.1:8787
+python -m factory ui --mode tray    # трей (нужен pystray)
+```
+
+## Зависимости
+
+Ядро — только стандартная библиотека (Python ≥ 3.11). Опционально:
+`pystray` + `Pillow` для трея. Дашборд — на стандартном `http.server`.
+
+## Лицензия
+
+Apache-2.0.

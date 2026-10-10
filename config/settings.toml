@@ -1,0 +1,33 @@
+schema = "invr.factory.settings/1"
+active_profile = "default"
+catalog_dir = "catalog"
+ledger_path = "state/ledger.jsonl"
+domains_file = "config/domains.toml"
+profiles_dir = "config/profiles"
+healthcheck = true
+
+[ui]
+mode = "all"
+
+[ui.web]
+host = "127.0.0.1"
+port = 8787
+
+[ui.tray]
+icon = ""
+
+[automation]
+mode = "auto"
+
+[automation.semi]
+checkpoints = ["scrape", "write", "cloud"]
+
+[adapters]
+lab100_enabled = true
+lab100_dir = ""
+invr_enabled = true
+invr_root = ""
+llm_local_enabled = true
+ollama_host = "http://127.0.0.1:11434"
+region_enabled = true
+region_repo = ""

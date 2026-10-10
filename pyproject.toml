@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "factory-core"
+version = "0.1.0"
+description = "Фабрика Lab-100: пульт и диспетчер для объединения scripts-tools, devstation-deploy, Lab100 и region-spoof"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Lab-100" }]
+keywords = ["factory", "orchestration", "agents", "domains", "invr", "lab100"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Natural Language :: Russian",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Distributed Computing",
+]
+
+[project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow>=10"]
+
+[project.scripts]
+factory = "factory.__main__:main"
+
+[tool.setuptools]
+packages = [
+  "factory",
+  "factory.adapters",
+  "factory.ui",
+]
+
+[tool.setuptools.package-data]
+factory = ["../config/*.toml", "../schemas/*.json"]

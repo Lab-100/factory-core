@@ -1,0 +1,29 @@
+# Профиль "default": наложения поверх базовых домены (config/domains.toml).
+# Здесь можно включать/выключать домены, менять приоритеты и заменять поля —
+# не трогая базовый файл. Переключение профиля — в config/settings.toml (active_profile).
+
+schema = "invr.factory.profile/1"
+name = "default"
+description = "Профиль по умолчанию: исследование, код, документы, инфра. Медиа выключено."
+
+# Точечные переопределения существующих домены
+[override.research]
+priority = 55
+
+[override.coding]
+priority = 65
+
+[override.infra]
+enabled = true
+
+# Дополнительные домены, объявленные только в этом профиле
+[add.reporting]
+title = "Отчётность (профильный домен)"
+enabled = true
+priority = 45
+capabilities = ["web-search", "answer", "vision"]
+tools = ["doc-extract", "browsertool"]
+llm = ["ollama", "gemini", "firecrawl"]
+policy = "local-first, cloud-fallback"
+region = "auto"
+keywords = ["оформи отчёт", "сводка", "презентация"]

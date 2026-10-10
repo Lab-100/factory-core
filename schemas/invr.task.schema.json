@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Lab-100/factory-core/schemas/invr.task.schema.json",
+  "title": "invr.task/1 — заказ-наряд оператора",
+  "type": "object",
+  "required": ["schema", "goal"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "invr.task/1" },
+    "id": { "type": "string" },
+    "operator": { "type": "string" },
+    "domain": { "type": "string", "description": "Явный домен; при пустом — автоподбор" },
+    "goal": { "type": "string" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Требуемые компетенции: web-search, deep-research, scrape, code, vision, answer, region-switch"
+    },
+    "inputs": { "type": "object" },
+    "outputs": {
+      "type": "object",
+      "properties": {
+        "artifacts": { "type": "array", "items": { "type": "string" } },
+        "catalog": { "type": "string" }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "prefer": { "type": "string", "enum": ["local+free", "local-only", "best-quality"] },
+        "allow_region_switch": { "type": "boolean" },
+        "max_cloud_cost": { "type": "number" }
+      }
+    },
+    "automation": { "type": "string", "enum": ["auto", "semi"], "description": "Переопределяет настройку по умолчанию" },
+    "acceptance": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "invr.task/1",
+  "id": "task-example-001",
+  "operator": "HGZ",
+  "domain": "research",
+  "goal": "Собрать краткий обзор темы 'локальные ИИ-агенты' и подготовить отчёт",
+  "capabilities": ["web-search", "scrape", "answer"],
+  "inputs": { "topic": "локальные ИИ-агенты", "sources_hint": ["yandex", "firecrawl"] },
+  "outputs": { "artifacts": ["report.md"], "catalog": "catalog/research/local-ai-agents" },
+  "constraints": { "prefer": "local+free", "allow_region_switch": true, "max_cloud_cost": 0 },
+  "acceptance": ["не менее 3 независимых источника", "отчёт сохранён в каталог"]
+}

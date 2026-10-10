@@ -11,7 +11,7 @@ py -m PyInstaller --noconfirm --clean --onefile --name factory `
   --add-data "config;config" `
   --add-data "schemas;schemas" `
   --add-data "examples;examples" `
-  factory/__main__.py
+  run.py
 
 if (-not (Test-Path "dist\factory.exe")) { Write-Error "Сборка не удалась"; exit 1 }
 Write-Host "OK: dist\factory.exe"

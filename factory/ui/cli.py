@@ -142,6 +142,9 @@ def _cmd_ui(args) -> int:
     if mode == "tray":
         from .tray import serve
         return serve()
+    if mode == "desktop":
+        from .desktop import serve
+        return serve()
     _, settings, _, _ = build_context()
     tr = make_translator(settings)
     print(tr("ui.cli_hint"))
@@ -729,7 +732,7 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_project.set_defaults(func=_cmd_project)
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
-    p_ui.add_argument("--mode", choices=["cli", "web", "tray"], default="cli")
+    p_ui.add_argument("--mode", choices=["cli", "web", "tray", "desktop"], default="cli")
     p_ui.set_defaults(func=_cmd_ui)
 
     p_doctor = sub.add_parser("doctor", help=t(lang, "cmd.doctor"))

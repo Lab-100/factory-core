@@ -87,6 +87,7 @@ python -m factory region switch --region US
 python -m factory ui --mode cli     # текущий
 python -m factory ui --mode web     # дашборд http://127.0.0.1:8787 (запуск задач, очередь, подтверждения)
 python -m factory ui --mode tray    # трей (нужен pystray)
+python -m factory ui --mode desktop # окно приложения (нужен pywebview: pip install .[desktop])
 
 # автовход в GitHub (device flow: код + автооткрытие браузера, токен → state/github.token)
 python -m factory auth login
@@ -142,6 +143,13 @@ python -m factory run examples/task.tools.json --dry-run
 - Windows-установка: распакуйте `factory-core-win.zip` из релиза и запустите
   `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
   в PATH и меню «Пуск».
+- Установщик как Windows-приложения: `scripts/make_installer.ps1` собирает
+  `dist/factory-setup.exe` (Inno Setup 6) — установка без прав администратора,
+  ярлыки «окно»/«дашборд», добавление в PATH, необязательный автозапуск,
+  запись в «Программы и компоненты» и штатное удаление (каталог в PATH
+  вычищается деинсталлятором). Нужен установленный Inno Setup
+  (`winget install --id JRSoftware.InnoSetup`); скрипт сам найдёт `ISCC.exe`
+  и подскажет, если его нет.
 - Обёртка-шим (§8.3): `scripts/factory.ps1` — переносимая точка входа
   («Lab100 → инструмент → каталог»): ищет рядом `factory.exe`, иначе запускает
   `python -m factory`; `factory.ps1 run <task.json>`, `factory.ps1 catalog`,

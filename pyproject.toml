@@ -23,6 +23,7 @@ classifiers = [
 
 [project.optional-dependencies]
 tray = ["pystray>=0.19", "Pillow>=10"]
+desktop = ["pywebview>=5"]
 
 [project.scripts]
 factory = "factory.__main__:main"

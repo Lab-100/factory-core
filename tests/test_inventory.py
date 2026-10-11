@@ -90,6 +90,22 @@ class InventoryTest(unittest.TestCase):
         self.assertTrue(source["available"])
         self.assertEqual(source["count"], 1)
 
+    def test_absent_source_has_hint(self) -> None:
+        # отсутствующий источник получает подсказку, как его подключить (4.4)
+        iso = self.root / "iso" / "factory"
+        (iso / "config").mkdir(parents=True)
+        (iso / "config" / "settings.toml").write_text("", encoding="utf-8")
+        settings = Settings(iso / "config" / "settings.toml", {})
+        clean = {name: "" for spec in inventory.REPOS.values() for name in spec["env"]}
+        with mock.patch.dict(os.environ, clean):
+            for spec in inventory.REPOS.values():
+                for name in spec["env"]:
+                    os.environ.pop(name, None)
+            data = inventory.build(settings)
+        source = data["sources"]["region-spoof"]
+        self.assertFalse(source["available"])
+        self.assertIn("region_repo", source["hint"])
+
     def test_scanners(self) -> None:
         tools = inventory._scan_tools(self.root / "scripts-tools")
         self.assertEqual(tools["count"], 1)

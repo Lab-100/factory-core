@@ -109,6 +109,17 @@ def locate(settings, name: str) -> Path | None:
     return _locate(settings, spec) if spec else None
 
 
+def hint_for(name: str) -> str:
+    """Подсказка, как подключить отсутствующий источник (настройка/переменная/путь)."""
+    spec = REPOS.get(name)
+    if not spec:
+        return ""
+    env = "/".join(spec["env"])
+    names = " или ".join(spec["names"])
+    return (f"задайте «{spec['setting']}» либо переменную окружения {env}, "
+            f"или положите каталог {names} рядом с фабрикой")
+
+
 def lab100_config(settings) -> tuple[Path | None, dict]:
     """Каталог Lab100 и разобранный config/agents.toml (для инвентаря и квот)."""
     repo = locate(settings, "Lab100")
@@ -190,7 +201,7 @@ def build(settings=None) -> dict:
     for name, spec in REPOS.items():
         repo = _locate(settings, spec)
         if repo is None:
-            sources[name] = {"available": False}
+            sources[name] = {"available": False, "hint": hint_for(name)}
             continue
         if name == "scripts-tools":
             sources[name] = _scan_tools(repo)

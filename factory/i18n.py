@@ -190,6 +190,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                               "этапов: {stages}"),
         "inventory.source": "{name}: {path} ({detail})",
         "inventory.absent": "{name}: не найден",
+        "inventory.hint": "подсказка: {hint}",
         "inventory.saved": "карта сохранена: {path}",
         # квоты (этап 4)
         "cmd.quotas": "квоты исполнителей Lab100",
@@ -422,6 +423,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                               "providers: {providers}; regions: {regions}; stages: {stages}"),
         "inventory.source": "{name}: {path} ({detail})",
         "inventory.absent": "{name}: not found",
+        "inventory.hint": "hint: {hint}",
         "inventory.saved": "map saved: {path}",
         # quotas (stage 4)
         "cmd.quotas": "Lab100 provider quotas",
@@ -651,6 +653,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                               "提供方：{providers}；区域：{regions}；阶段：{stages}"),
         "inventory.source": "{name}：{path}（{detail}）",
         "inventory.absent": "{name}：未找到",
+        "inventory.hint": "提示：{hint}",
         "inventory.saved": "地图已保存：{path}",
         # 配额（阶段 4）
         "cmd.quotas": "Lab100 提供方配额",

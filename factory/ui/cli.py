@@ -320,6 +320,8 @@ def _cmd_inventory(args) -> int:
         for name, source in data["sources"].items():
             if not source.get("available"):
                 print(tr("inventory.absent", name=name))
+                if source.get("hint"):
+                    print("    " + tr("inventory.hint", hint=source["hint"]))
             else:
                 print(tr("inventory.source", name=name, path=source.get("root", ""),
                          detail=_inventory_detail(name, source)))

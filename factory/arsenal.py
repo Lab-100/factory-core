@@ -184,7 +184,8 @@ def _repo_elements(inv: dict) -> list[dict]:
             path=source.get("root"),
             probe={"kind": "exists", "path": source.get("root")} if available else None,
             owner="factory",
-            meta={"role": (inv.get("roles") or {}).get(name, "")},
+            meta={"role": (inv.get("roles") or {}).get(name, ""),
+                  "hint": source.get("hint", "")},
         ))
     return out
 

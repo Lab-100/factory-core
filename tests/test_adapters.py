@@ -1,10 +1,13 @@
-"""Тесты адаптеров: соответствие командам внешних репозиториев."""
+"""Тесты адаптеров: соответствие командам внешних репозиториев и запуск шимов."""
 from __future__ import annotations
 
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
 
+from factory.adapters.invr_tool import InvrToolAdapter
 from factory.adapters.lab100 import Lab100Adapter
 from factory.settings import Settings
 
@@ -42,6 +45,68 @@ class Lab100CommandTest(unittest.TestCase):
         argv = Lab100Adapter(self.settings)._command("scrape", {"url": "http://example.org"})
         self.assertIn("scrape", argv)
         self.assertEqual(argv[-1], "http://example.org")
+
+
+class InvrShimExecutionTest(unittest.TestCase):
+    """Живой запуск шима склада INVR (реальный подпроцесс), а не только dry-run.
+
+    Раньше проверялся только план/`simulated`; здесь шим действительно
+    исполняется, и его вывод попадает в результат шага.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "tools"
+        self.tools.mkdir()
+        config = Path(self.tmp.name) / "config"
+        config.mkdir()
+        settings_path = config / "settings.toml"
+        settings_path.write_text("", encoding="utf-8")
+        self.settings = Settings(settings_path, {"adapters": {"invr_root": str(self.tools)}})
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _write_shim(self, tool: str, marker: str) -> Path:
+        """Переносимый шим: .cmd на Windows, исполняемый sh-скрипт с .exe иначе."""
+        if os.name == "nt":
+            shim = self.tools / f"{tool}.cmd"
+            shim.write_text(f"@echo off\r\necho {marker} %*\r\n", encoding="ascii")
+        else:
+            shim = self.tools / f"{tool}.exe"
+            shim.write_text(f'#!/bin/sh\necho "{marker} $*"\n', encoding="utf-8")
+            shim.chmod(shim.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        return shim
+
+    def test_real_shim_is_executed(self) -> None:
+        self._write_shim("echoer", "MARKER-OK")
+        result = InvrToolAdapter(self.settings).run(
+            "run", {"tool": "echoer", "args": ["a", "b"]})
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(result.status, "ok")
+        self.assertIn("MARKER-OK", result.output["stdout"])
+        self.assertIn("a", result.output["stdout"])
+        self.assertIn("b", result.output["stdout"])
+
+    def test_missing_shim_is_unavailable(self) -> None:
+        result = InvrToolAdapter(self.settings).run("run", {"tool": "нет-такого"})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "unavailable")
+        self.assertIn("нет-такого", result.error)
+
+    def test_dry_run_does_not_require_shim(self) -> None:
+        result = InvrToolAdapter(self.settings).run(
+            "run", {"tool": "нет-такого", "args": ["x"]}, dry_run=True)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.status, "simulated")
+        self.assertEqual(result.output["args"], ["x"])
+
+    def test_health_lists_shims(self) -> None:
+        self._write_shim("doc-extract", "X")
+        health = InvrToolAdapter(self.settings).health()
+        self.assertTrue(health["available"])
+        self.assertEqual(Path(health["root"]), self.tools)
+        self.assertIn("doc-extract", health["shims"])
 
 
 if __name__ == "__main__":

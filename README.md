@@ -50,9 +50,12 @@ factory-core/
     profiles/default.toml наложения профиля на домены
   schemas/invr.task.schema.json
   factory/
-    settings.py  domains.py  task.py  ledger.py  dispatch.py
+    settings.py  domains.py  task.py  ledger.py  dispatch.py  context.py
+    inventory.py  quotas.py  watchdog.py  jobs.py  catalog.py  doctor.py
     adapters/    base.py lab100.py invr_tool.py llm_local.py region.py
+    integrations/ metrics.py infra.py backup.py
     ui/          cli.py web.py tray.py
+    auth.py  release.py  i18n.py  regionlib.py  paths.py  tomlw.py  tomlpatch.py
   tests/
 ```
 
@@ -184,6 +187,19 @@ python -m factory settings set ui.lang zh   # 中文
 
 Также можно задать язык окружением `FACTORY_LANG=ru|en|zh`. В веб-дашборде
 язык переключается в секции «Настройки» (язык применяется сразу).
+
+## Тесты
+
+```bash
+python -m unittest discover -s tests        # изолированные тесты (без внешних вызовов)
+python -m unittest discover -s tests -v      # подробно
+FACTORY_LIVE=1 python -m unittest tests.test_live   # живой прогон на реальной установке
+```
+
+Изолированные тесты не требуют исходных репозиториев и внешних сервисов: адаптеры
+подставные, шимы INVR создаются во временном каталоге. Живой прогон
+(`FACTORY_LIVE=1`) собирает настоящий контекст, инвентарь и делает сквозной
+dry-run через реальные адаптеры.
 
 ## Зависимости
 

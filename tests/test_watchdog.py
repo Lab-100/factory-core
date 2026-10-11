@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -51,7 +52,12 @@ class WatchdogTest(unittest.TestCase):
     def test_reload_domains_on_change(self) -> None:
         dog = Watchdog(self.settings, root=self.root, ledger=self.ledger)
         dog.tick()
+        # Явно сдвигаем mtime: не полагаемся на разрешение таймстемпов
+        # файловой системы (на CI файл мог быть перезаписан в ту же секунду,
+        # и тогда «изменения» не видно — ложное падение).
+        before = self.domains_file.stat().st_mtime
         self.domains_file.write_text(DOMAINS + "\n# change\n", encoding="utf-8")
+        os.utime(self.domains_file, (before + 10, before + 10))
         result = dog.tick()
         actions = [action["action"] for action in result["actions"]]
         self.assertIn("reload-domains", actions)

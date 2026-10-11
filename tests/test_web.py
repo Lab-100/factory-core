@@ -274,6 +274,39 @@ class WebDashboardTest(unittest.TestCase):
         self.assertEqual(code, 404)
         self.assertFalse(data["ok"])
 
+    # --- вложения и экспорт ---
+    def test_api_upload_and_export(self) -> None:
+        boundary = "----factorytest"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="scope"\r\n\r\ns1\r\n'
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="doc.txt"\r\n'
+            "Content-Type: text/plain\r\n\r\n"
+            "содержимое\r\n"
+            f"--{boundary}--\r\n"
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self._url("/api/upload"), data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST")
+        with self.opener.open(request, timeout=10) as resp:
+            up = json.loads(resp.read().decode("utf-8"))
+        self.assertTrue(up["ok"])
+        self.assertEqual(len(up["attachments"]), 1)
+        self.assertEqual(up["attachments"][0]["name"], "doc.txt")
+        self.assertTrue((self.root / up["attachments"][0]["path"]).exists())
+
+        _code, s = self._post("/api/sessions", {"title": "Экспорт"})
+        sid = s["session"]["id"]
+        self._post("/api/sessions/append", {"id": sid, "text": "привет"})
+        code, text = self._get_text(f"/api/export?kind=session&id={sid}&format=md")
+        self.assertEqual(code, 200)
+        self.assertIn("привет", text)
+
+        code, data = self._get("/api/export?kind=session&id=nope&format=md")
+        self.assertEqual(code, 404)
+
     # --- запуск задач и подтверждение ---
     def test_run_auto_job_and_poll(self) -> None:
         code, data = self._post("/api/run", {

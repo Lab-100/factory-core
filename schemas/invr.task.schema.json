@@ -34,7 +34,16 @@
         ]
       }
     },
-    "inputs": { "type": "object" },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "attachments": {
+          "type": "array",
+          "description": "Вложения оператора: относительные пути из state/uploads/<scope>/",
+          "items": { "type": "string" }
+        }
+      }
+    },
     "outputs": {
       "type": "object",
       "properties": {

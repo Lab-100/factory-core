@@ -627,6 +627,27 @@ def _cmd_sessions(args) -> int:
     return 0
 
 
+def _cmd_export(args) -> int:
+    """Экспорт заказа или сессии: markdown, JSON или ZIP."""
+    from .. import export as exp
+
+    root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    result = exp.export(root, args.kind, args.id, args.format)
+    if result is None:
+        print(tr("export.not_found", kind=args.kind, id=args.id))
+        return 1
+    data, _ctype, fname = result
+    if not args.out and args.format != "zip":
+        sys.stdout.write(data.decode("utf-8", "replace"))
+        return 0
+    target = Path(args.out) if args.out else root / fname
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    print(tr("export.saved", path=str(target), size=len(data)))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -664,6 +685,13 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_sessions.add_argument("--text", default="", help=t(lang, "arg.sessions.text"))
     p_sessions.add_argument("--json", action="store_true", help=t(lang, "arg.sessions.json"))
     p_sessions.set_defaults(func=_cmd_sessions)
+
+    p_export = sub.add_parser("export", help=t(lang, "cmd.export"))
+    p_export.add_argument("kind", nargs="?", default="job", choices=["job", "session"])
+    p_export.add_argument("id", help=t(lang, "arg.export.id"))
+    p_export.add_argument("--format", default="md", choices=["md", "json", "zip"])
+    p_export.add_argument("--out", default="", help=t(lang, "arg.export.out"))
+    p_export.set_defaults(func=_cmd_export)
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
     p_ui.add_argument("--mode", choices=["cli", "web", "tray"], default="cli")

@@ -171,6 +171,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.refresh": "Обновить",
         # сессии (веб)
         "web.sessions": "Сессии (история запросов)",
+        "web.attach": "Прикрепить файлы",
         "web.ses_new": "Новая сессия",
         "web.ses_title_ph": "Название сессии (необязательно)",
         "web.ses_open": "Открыть",
@@ -290,6 +291,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sessions.role.system": "система",
         "sessions.done": "Задача выполнена.",
         "sessions.failed": "Задача не выполнена.",
+        # экспорт
+        "cmd.export": "экспорт заказа или сессии",
+        "arg.export.id": "идентификатор заказа/сессии",
+        "arg.export.out": "файл для сохранения",
+        "export.not_found": "Не найдено: {kind} {id}",
+        "export.saved": "Сохранено: {path} ({size} байт)",
         "arg.logs.source": "id источника (factory.ledger, opencode.log, …)",
         "arg.logs.element": "фильтр строк по имени элемента",
         "arg.logs.level": "фильтр по уровню/статусу",
@@ -441,6 +448,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.refresh": "Refresh",
         # sessions (web)
         "web.sessions": "Sessions (request history)",
+        "web.attach": "Attach files",
         "web.ses_new": "New session",
         "web.ses_title_ph": "Session title (optional)",
         "web.ses_open": "Open",
@@ -558,6 +566,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sessions.role.system": "system",
         "sessions.done": "Task completed.",
         "sessions.failed": "Task not completed.",
+        # export
+        "cmd.export": "export a job or session",
+        "arg.export.id": "job/session id",
+        "arg.export.out": "output file",
+        "export.not_found": "Not found: {kind} {id}",
+        "export.saved": "Saved: {path} ({size} bytes)",
         "arg.logs.source": "source id (factory.ledger, opencode.log, …)",
         "arg.logs.element": "filter lines by element name",
         "arg.logs.level": "filter by level/status",
@@ -706,6 +720,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.refresh": "刷新",
         # 会话（网页）
         "web.sessions": "会话（请求历史）",
+        "web.attach": "附加文件",
         "web.ses_new": "新建会话",
         "web.ses_title_ph": "会话标题（可选）",
         "web.ses_open": "打开",
@@ -823,6 +838,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sessions.role.system": "系统",
         "sessions.done": "任务已完成。",
         "sessions.failed": "任务未完成。",
+        # 导出
+        "cmd.export": "导出任务或会话",
+        "arg.export.id": "任务/会话 ID",
+        "arg.export.out": "输出文件",
+        "export.not_found": "未找到：{kind} {id}",
+        "export.saved": "已保存：{path}（{size} 字节）",
         "arg.logs.source": "来源 id（factory.ledger、opencode.log…）",
         "arg.logs.element": "按元素名过滤",
         "arg.logs.level": "按级别/状态过滤",

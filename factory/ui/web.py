@@ -22,11 +22,13 @@
   GET  /api/jobs/get?id=
   GET  /api/sessions              — список сессий (история запросов)
   GET  /api/sessions/get?id=      — сессия целиком (сообщения)
+  GET  /api/export?kind=&id=&format= — экспорт заказа/сессии (md|json|zip)
   POST /api/run                   — запустить задачу (JSON invr.task/1)
   POST /api/jobs/approve          — решение по шагу: {"id": ..., "ok": true|false}
   POST /api/sessions              — создать сессию: {"title": ...}
   POST /api/sessions/append       — добавить сообщение: {"id":, "role":, "text": ...}
   POST /api/sessions/delete       — удалить сессию: {"id": ...}
+  POST /api/upload                — загрузка вложений (multipart/form-data)
   POST /api/supervise/action      — действие над службой: {"element": ..., "action": "up|down|restart"}
 """
 from __future__ import annotations
@@ -41,6 +43,48 @@ from ..i18n import choose, make_translator
 from ..jobs import JobManager
 from ..paths import repo_root
 from ..sessions import SessionStore
+
+
+def _extract_boundary(content_type: str) -> str:
+    for part in str(content_type or "").split(";"):
+        part = part.strip()
+        if part.lower().startswith("boundary="):
+            return part.split("=", 1)[1].strip('"')
+    return ""
+
+
+def _parse_multipart(body: bytes, content_type: str) -> tuple[str, list[tuple[str, bytes]]]:
+    """Разбор multipart/form-data: вернуть (scope, [(имя файла, данные)])."""
+    boundary = _extract_boundary(content_type)
+    if not boundary:
+        return "default", []
+    delimiter = b"--" + boundary.encode("utf-8")
+    scope = "default"
+    files: list[tuple[str, bytes]] = []
+    for chunk in body.split(delimiter):
+        if not chunk or chunk in (b"--\r\n", b"--", b"\r\n"):
+            continue
+        head, sep, content = chunk.partition(b"\r\n\r\n")
+        if not sep:
+            continue
+        content = content.rstrip(b"\r\n")
+        if content.endswith(b"--"):
+            content = content[:-2].rstrip(b"\r\n")
+        headers = head.decode("utf-8", "replace")
+        field = filename = None
+        for line in headers.split("\r\n"):
+            if line.lower().startswith("content-disposition:"):
+                for token in line.split(";"):
+                    token = token.strip()
+                    if token.startswith("name="):
+                        field = token.split("=", 1)[1].strip('"')
+                    elif token.startswith("filename="):
+                        filename = token.split("=", 1)[1].strip('"')
+        if filename:
+            files.append((filename, content))
+        elif field == "scope":
+            scope = content.decode("utf-8", "replace") or "default"
+    return scope, files
 
 _TEMPLATE = """<!doctype html>
 <html lang="{{lang}}"><head><meta charset="utf-8">
@@ -71,6 +115,7 @@ _TEMPLATE = """<!doctype html>
     <option value="">{{t_from_settings}}</option><option value="auto">auto</option><option value="semi">semi</option>
    </select></label>
   <label><input type="checkbox" id="dry"> dry-run</label><br>
+  <label>{{t_attach}} <input type="file" id="files" multiple style="width:auto"></label><br>
   <button onclick="submitTask()">{{t_run}}</button>
   <div id="submitMsg"></div>
  </section>
@@ -120,6 +165,18 @@ async function setLang(v){await fetch(`/api/settings/set?key=ui.lang&value=${enc
 async function submitTask(){
  const goal=document.getElementById('goal').value.trim();
  if(!goal){document.getElementById('submitMsg').textContent=T.req;return}
+ const fi=document.getElementById('files');
+ let attachments=[];
+ if(fi&&fi.files.length){
+   const fd=new FormData();
+   fd.append('scope', currentSession||'default');
+   for(const f of fi.files) fd.append('file', f);
+   const up=await fetch('/api/upload',{method:'POST',body:fd});
+   const ud=await up.json();
+   if(!ud.ok){document.getElementById('submitMsg').textContent=T.err+(ud.error||'');return}
+   attachments=(ud.attachments||[]).map(a=>a.path);
+   fi.value='';
+ }
  const body={
   schema:'invr.task/1',
   goal,
@@ -127,6 +184,7 @@ async function submitTask(){
   automation:document.getElementById('automation').value||null,
   dry_run:document.getElementById('dry').checked
  };
+ if(attachments.length) body.inputs={attachments};
  if(currentSession) body.session=currentSession;
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
@@ -167,6 +225,8 @@ async function openSession(id){
   '<div style="max-height:260px;overflow:auto;border:1px solid #262b36;border-radius:8px;padding:8px;margin-bottom:8px">'+rows+'</div>'+
   '<textarea id="sesMsg" rows="2" placeholder="'+esc(T.sesPh)+'"></textarea>'+
   '<button onclick="sendMsg()">'+T.sesSend+'</button> '+
+  '<button onclick="window.open(\'/api/export?kind=session&id='+s.id+'&format=md\')">md</button> '+
+  '<button onclick="window.open(\'/api/export?kind=session&id='+s.id+'&format=json\')">json</button> '+
   '<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
 }
 async function sendMsg(){
@@ -191,6 +251,10 @@ async function loadJobs(){
   r.jobs.map(x=>{
    let actions='';
    if(x.awaiting) actions=`<button onclick="approveJob('${x.id}',true)">${T.appr}</button> <button class="warn" onclick="approveJob('${x.id}',false)">${T.skip}</button>`;
+   const exp=`<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=md')">md</button>`+
+    `<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=json')">json</button>`+
+    `<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=zip')">zip</button>`;
+   actions=(actions?actions+' ':'')+exp;
    const cls=x.status==='awaiting-approval'?'wait':(x.status==='done'?'on':(x.status==='running'?'wait':'off'));
    return `<tr><td>${x.id}</td><td class="${cls}">${x.status}</td><td>${esc(x.goal).slice(0,60)}</td><td>${x.domain||'auto'}</td><td>${actions}</td></tr>`;
   }).join('')+'</table>';
@@ -357,6 +421,7 @@ def _page(lang: str) -> str:
         "t_web_logs_ph": tr("web.logs_ph"),
         "t_web_refresh": tr("web.refresh"),
         "t_sessions": tr("web.sessions"),
+        "t_attach": tr("web.attach"),
         "t_ses_new": tr("web.ses_new"),
         "t_ses_title_ph": tr("web.ses_title_ph"),
         "t_ses_open": tr("web.ses_open"),
@@ -390,10 +455,12 @@ def _jobs() -> JobManager:
 
 def _handler_class():
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, payload, status=200, content_type="application/json"):
+        def _send(self, payload, status=200, content_type="application/json", filename=None):
             body = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -485,17 +552,38 @@ def _handler_class():
                 session = SessionStore(root).get(query.get("id", [""])[0])
                 return self._send(session or {"error": "not found"},
                                   status=200 if session else 404)
+            if path == "/api/export":
+                from .. import export as exp
+                result = exp.export(root, query.get("kind", ["job"])[0],
+                                    query.get("id", [""])[0],
+                                    query.get("format", ["md"])[0])
+                if result is None:
+                    return self._send({"error": "not found"}, status=404)
+                data, ctype, fname = result
+                return self._send(data, content_type=ctype, filename=fname)
             return self._send({"error": "not found"}, status=404)
 
         def do_POST(self):  # noqa: N802
             parsed = urlparse(self.path)
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b"{}"
+            path = parsed.path
+            content_type = self.headers.get("Content-Type") or ""
+            if path == "/api/upload" and content_type.startswith("multipart/form-data"):
+                from ..attachments import AttachmentsStore
+                scope, files = _parse_multipart(raw, content_type)
+                store = AttachmentsStore(repo_root())
+                saved = []
+                for name, blob in files:
+                    try:
+                        saved.append(store.save(scope, name, blob))
+                    except ValueError as exc:
+                        return self._send({"ok": False, "error": str(exc)}, status=400)
+                return self._send({"ok": True, "scope": scope, "attachments": saved})
             try:
                 data = json.loads(raw.decode("utf-8") or "{}")
             except json.JSONDecodeError:
                 return self._send({"ok": False, "error": "bad json"}, status=400)
-            path = parsed.path
             if path == "/api/run":
                 job = _jobs().submit(data)
                 return self._send({"ok": True, "job": _jobs().summary(job)})

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .context import build_context
 from .dispatch import Dispatcher
+from .sessions import SessionStore
 from .task import Task
 
 
@@ -25,6 +26,7 @@ class JobManager:
     def __init__(self, root: str | Path):
         self.root = Path(root)
         self.path = self.root / "state" / "jobs.jsonl"
+        self.sessions = SessionStore(self.root)
         self._lock = threading.Lock()
         self._jobs: dict[str, dict] = {}
         self._events: dict[str, threading.Event] = {}
@@ -72,6 +74,7 @@ class JobManager:
             "awaiting": job.get("awaiting", False),
             "pending": job.get("pending"),
             "error": job.get("error"),
+            "session": job.get("session"),
             "ok": (job.get("result") or {}).get("ok") if job.get("result") else None,
         }
 
@@ -98,6 +101,13 @@ class JobManager:
         with self._lock:
             self._jobs[job_id] = job
             self._persist(job)
+        session_id = str(payload.get("session") or "")
+        if session_id:
+            job["session"] = session_id
+            self.sessions.ensure(session_id)
+            self.sessions.append(session_id, "user", job["goal"], job_id=job_id)
+            with self._lock:
+                self._persist(job)
         threading.Thread(target=self._run, args=(job_id, payload), daemon=True).start()
         return job
 
@@ -136,6 +146,26 @@ class JobManager:
             job["error"] = str(exc)
         finally:
             self._persist(job)
+            self._record_session(job)
+
+    def _record_session(self, job: dict) -> None:
+        """Записать итог задачи в привязанную сессию (если есть)."""
+        session_id = job.get("session")
+        if not session_id:
+            return
+        result = job.get("result") or {}
+        lines = [f"Задача {job.get('id')}: {job.get('status')}"]
+        if isinstance(result, dict) and result.get("ok") is not None:
+            lines.append(f"ok={result.get('ok')}")
+        catalog = result.get("catalog") if isinstance(result, dict) else None
+        if isinstance(catalog, dict) and catalog.get("path"):
+            lines.append(f"каталог: {catalog['path']}")
+        elif isinstance(catalog, str) and catalog:
+            lines.append(f"каталог: {catalog}")
+        if job.get("error"):
+            lines.append(f"ошибка: {job['error']}")
+        self.sessions.append(str(session_id), "assistant", "\n".join(lines),
+                             job_id=job.get("id"))
 
     def approve(self, job_id: str, ok: bool = True) -> dict | None:
         self._decisions[job_id] = bool(ok)

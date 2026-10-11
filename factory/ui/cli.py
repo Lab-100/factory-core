@@ -11,6 +11,7 @@ from ..context import build_context
 from ..dispatch import Dispatcher
 from ..doctor import run_doctor, summarize
 from ..i18n import choose, make_translator, t
+from ..sessions import SessionStore
 from ..task import Task
 
 
@@ -109,6 +110,11 @@ def _cmd_run(args) -> int:
     elif args.semi:
         task.automation = "semi"
     dispatcher = Dispatcher(settings, registry, ledger)
+    session_id = str(getattr(args, "session", "") or "")
+    store = SessionStore(root) if session_id else None
+    if store is not None:
+        store.ensure(session_id)
+        store.append(session_id, "user", task.goal)
 
     def approve(step) -> bool:
         if args.yes:
@@ -122,6 +128,9 @@ def _cmd_run(args) -> int:
 
     result = dispatcher.execute(task, approve=approve, dry_run=args.dry_run)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if store is not None:
+        store.append(session_id, "assistant",
+                     tr("sessions.done") if result.get("ok") else tr("sessions.failed"))
     return 0 if result["ok"] or args.dry_run else 1
 
 
@@ -565,6 +574,59 @@ def _cmd_logs(args) -> int:
     return 0
 
 
+def _cmd_sessions(args) -> int:
+    """Сессии: история запросов и ответов по задачам."""
+    root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    store = SessionStore(root)
+    action = getattr(args, "session_action", None) or "list"
+    if action == "new":
+        session = store.create(title=getattr(args, "title", "") or "",
+                               project=str(settings.get("project", "") or ""))
+        print(tr("sessions.created", id=session["id"], title=session["title"]))
+        return 0
+    if action == "add":
+        if not args.text:
+            print(tr("sessions.need_text"))
+            return 1
+        if store.append(args.id, "user", args.text) is None:
+            print(tr("sessions.not_found", id=args.id))
+            return 1
+        print(tr("sessions.appended", id=args.id))
+        return 0
+    if action == "rm":
+        if store.delete(args.id):
+            print(tr("sessions.deleted", id=args.id))
+            return 0
+        print(tr("sessions.not_found", id=args.id))
+        return 1
+    if action == "show":
+        session = store.get(args.id)
+        if session is None:
+            print(tr("sessions.not_found", id=args.id))
+            return 1
+        if args.json:
+            print(json.dumps(session, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("sessions.show_title", id=session["id"], title=session["title"],
+                 count=len(session["messages"])))
+        for message in session["messages"]:
+            role = tr("sessions.role." + str(message.get("role", "system")))
+            print(tr("sessions.message", role=role, text=message.get("text", "")))
+        return 0
+    items = store.list()
+    if args.json:
+        print(json.dumps({"sessions": items}, ensure_ascii=False, indent=2))
+        return 0
+    if not items:
+        print(tr("sessions.empty"))
+        return 0
+    print(tr("sessions.title", count=len(items)))
+    for item in items:
+        print(tr("sessions.line", id=item["id"], title=item["title"], count=item["count"]))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -591,7 +653,17 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_run.add_argument("--auto", action="store_true", help=t(lang, "arg.run.auto"))
     p_run.add_argument("--semi", action="store_true", help=t(lang, "arg.run.semi"))
     p_run.add_argument("--yes", action="store_true", help=t(lang, "arg.run.yes"))
+    p_run.add_argument("--session", default="", help=t(lang, "arg.run.session"))
     p_run.set_defaults(func=_cmd_run)
+
+    p_sessions = sub.add_parser("sessions", help=t(lang, "cmd.sessions"))
+    p_sessions.add_argument("session_action", nargs="?", default="list",
+                            choices=["list", "new", "show", "add", "rm"])
+    p_sessions.add_argument("id", nargs="?", default="", help=t(lang, "arg.sessions.id"))
+    p_sessions.add_argument("--title", default="", help=t(lang, "arg.sessions.title"))
+    p_sessions.add_argument("--text", default="", help=t(lang, "arg.sessions.text"))
+    p_sessions.add_argument("--json", action="store_true", help=t(lang, "arg.sessions.json"))
+    p_sessions.set_defaults(func=_cmd_sessions)
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
     p_ui.add_argument("--mode", choices=["cli", "web", "tray"], default="cli")

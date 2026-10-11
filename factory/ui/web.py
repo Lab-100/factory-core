@@ -20,8 +20,13 @@
   GET  /api/logs?source=&element= — журналы арсенала (по элементу и сводно)
   GET  /api/jobs                  — очередь задач
   GET  /api/jobs/get?id=
+  GET  /api/sessions              — список сессий (история запросов)
+  GET  /api/sessions/get?id=      — сессия целиком (сообщения)
   POST /api/run                   — запустить задачу (JSON invr.task/1)
   POST /api/jobs/approve          — решение по шагу: {"id": ..., "ok": true|false}
+  POST /api/sessions              — создать сессию: {"title": ...}
+  POST /api/sessions/append       — добавить сообщение: {"id":, "role":, "text": ...}
+  POST /api/sessions/delete       — удалить сессию: {"id": ...}
   POST /api/supervise/action      — действие над службой: {"element": ..., "action": "up|down|restart"}
 """
 from __future__ import annotations
@@ -35,6 +40,7 @@ from ..context import build_context
 from ..i18n import choose, make_translator
 from ..jobs import JobManager
 from ..paths import repo_root
+from ..sessions import SessionStore
 
 _TEMPLATE = """<!doctype html>
 <html lang="{{lang}}"><head><meta charset="utf-8">
@@ -68,6 +74,14 @@ _TEMPLATE = """<!doctype html>
   <button onclick="submitTask()">{{t_run}}</button>
   <div id="submitMsg"></div>
  </section>
+ <section><h2>{{t_sessions}}</h2>
+  <div style="margin-bottom:8px">
+   <input id="sesTitle" placeholder="{{t_ses_title_ph}}" style="width:55%">
+   <button onclick="newSession()">{{t_ses_new}}</button>
+  </div>
+  <div id="sessions"></div>
+  <div id="sessionView"></div>
+ </section>
  <section><h2>{{t_jobs}}</h2><div id="jobs"></div></section>
  <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
  <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
@@ -93,7 +107,10 @@ const T={
  thUpdated:'{{t_th_updated}}',catalogEmpty:'{{t_catalog_empty}}',doctorSummary:'{{t_doctor_summary}}',
  thClass:'{{t_web_th_class}}',thOwner:'{{t_web_th_owner}}',thDetail:'{{t_web_th_detail}}',
  arsenalSummary:'{{t_web_arsenal_summary}}',logsAll:'{{t_web_logs_all}}',logsPh:'{{t_web_logs_ph}}',
- refresh:'{{t_web_refresh}}'
+ refresh:'{{t_web_refresh}}',
+ thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
+ sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
+ roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function j(u){const r=await fetch(u);return r.json()}
@@ -110,12 +127,59 @@ async function submitTask(){
   automation:document.getElementById('automation').value||null,
   dry_run:document.getElementById('dry').checked
  };
+ if(currentSession) body.session=currentSession;
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  document.getElementById('submitMsg').textContent=d.ok
    ?T.start.replace('{id}',d.job.id).replace('{status}',d.job.status)
    :T.err+(d.error||'');
  loadJobs();
+ if(currentSession) openSession(currentSession);
+}
+let currentSession='';
+function roleName(r){return r==='user'?T.roleUser:(r==='assistant'?T.roleAssistant:T.roleSystem)}
+async function newSession(){
+ const title=document.getElementById('sesTitle').value.trim();
+ const r=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});
+ const d=await r.json();
+ document.getElementById('sesTitle').value='';
+ if(d.ok){currentSession=d.session.id;loadSessions();openSession(d.session.id)}
+}
+async function loadSessions(){
+ const r=await j('/api/sessions');
+ const items=r.sessions||[];
+ document.getElementById('sessions').innerHTML=
+  '<table><tr><th>id</th><th>'+T.thTitle+'</th><th>'+T.thCount+'</th><th>'+T.thUpdated+'</th><th></th></tr>'+
+  items.map(s=>{
+   const openBtn='<button onclick="openSession(\''+s.id+'\')">'+T.sesOpen+'</button>';
+   const delBtn='<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
+   return '<tr><td><code>'+esc(s.id)+'</code></td><td>'+esc(s.title)+'</td><td>'+s.count+'</td>'+
+    '<td><small>'+esc((s.updated||'').slice(0,19))+'</small></td><td>'+openBtn+' '+delBtn+'</td></tr>';
+  }).join('')+'</table>';
+}
+async function openSession(id){
+ currentSession=id;
+ const s=await j('/api/sessions/get?id='+encodeURIComponent(id));
+ if(s.error){document.getElementById('sessionView').innerHTML='';return}
+ const rows=(s.messages||[]).map(m=>'<div><b>'+esc(roleName(m.role))+'</b>: '+esc(m.text)+'</div>').join('')||T.noData;
+ document.getElementById('sessionView').innerHTML=
+  '<h3>'+esc(s.title)+' <code>'+esc(s.id)+'</code></h3>'+
+  '<div style="max-height:260px;overflow:auto;border:1px solid #262b36;border-radius:8px;padding:8px;margin-bottom:8px">'+rows+'</div>'+
+  '<textarea id="sesMsg" rows="2" placeholder="'+esc(T.sesPh)+'"></textarea>'+
+  '<button onclick="sendMsg()">'+T.sesSend+'</button> '+
+  '<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
+}
+async function sendMsg(){
+ const ta=document.getElementById('sesMsg');
+ const text=ta?ta.value.trim():'';
+ if(!currentSession||!text) return;
+ await fetch('/api/sessions/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:currentSession,role:'user',text})});
+ openSession(currentSession);
+}
+async function delSession(id){
+ await fetch('/api/sessions/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+ if(currentSession===id){currentSession='';document.getElementById('sessionView').innerHTML=''}
+ loadSessions();
 }
 async function approveJob(id,ok){
  await fetch('/api/jobs/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,ok})});
@@ -230,7 +294,7 @@ async function loadLogs(){
   '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
   '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
 }
-load();loadJobs();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+load();loadJobs();loadSessions();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -292,6 +356,18 @@ def _page(lang: str) -> str:
         "t_web_logs_all": tr("web.logs_all"),
         "t_web_logs_ph": tr("web.logs_ph"),
         "t_web_refresh": tr("web.refresh"),
+        "t_sessions": tr("web.sessions"),
+        "t_ses_new": tr("web.ses_new"),
+        "t_ses_title_ph": tr("web.ses_title_ph"),
+        "t_ses_open": tr("web.ses_open"),
+        "t_ses_send": tr("web.ses_send"),
+        "t_ses_ph": tr("web.ses_ph"),
+        "t_ses_delete": tr("web.ses_delete"),
+        "t_ses_th_title": tr("web.ses_th_title"),
+        "t_ses_th_count": tr("web.ses_th_count"),
+        "t_role_user": tr("web.role_user"),
+        "t_role_assistant": tr("web.role_assistant"),
+        "t_role_system": tr("web.role_system"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -403,6 +479,12 @@ def _handler_class():
             if path == "/api/jobs/get":
                 job = _jobs().get(query.get("id", [""])[0])
                 return self._send(job or {"error": "not found"}, status=200 if job else 404)
+            if path == "/api/sessions":
+                return self._send({"sessions": SessionStore(root).list()})
+            if path == "/api/sessions/get":
+                session = SessionStore(root).get(query.get("id", [""])[0])
+                return self._send(session or {"error": "not found"},
+                                  status=200 if session else 404)
             return self._send({"error": "not found"}, status=404)
 
         def do_POST(self):  # noqa: N802
@@ -423,6 +505,22 @@ def _handler_class():
                     "ok": job is not None,
                     "job": _jobs().summary(job) if job else None,
                 }, status=200 if job else 404)
+            if path == "/api/sessions":
+                session = SessionStore(repo_root()).create(
+                    title=str(data.get("title") or ""),
+                    project=str(data.get("project") or ""))
+                return self._send({"ok": True, "session": session})
+            if path == "/api/sessions/append":
+                session = SessionStore(repo_root()).append(
+                    str(data.get("id") or ""),
+                    str(data.get("role") or "user"),
+                    str(data.get("text") or ""))
+                if session is not None:
+                    return self._send({"ok": True, "session": session})
+                return self._send({"ok": False, "error": "not found"}, status=404)
+            if path == "/api/sessions/delete":
+                ok = SessionStore(repo_root()).delete(str(data.get("id") or ""))
+                return self._send({"ok": ok}, status=200 if ok else 404)
             if path == "/api/supervise/action":
                 from ..supervisor import Supervisor
                 root, settings, _, ledger = build_context()

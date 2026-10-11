@@ -220,6 +220,60 @@ class WebDashboardTest(unittest.TestCase):
         code, data = self._get("/api/missing")
         self.assertEqual(code, 404)
 
+    # --- сессии ---
+    def test_api_sessions_lifecycle(self) -> None:
+        code, data = self._get("/api/sessions")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["sessions"], [])
+
+        code, data = self._post("/api/sessions", {"title": "Проба"})
+        self.assertEqual(code, 200)
+        self.assertTrue(data["ok"])
+        sid = data["session"]["id"]
+        self.assertEqual(data["session"]["title"], "Проба")
+
+        code, data = self._post("/api/sessions/append", {"id": sid, "text": "привет"})
+        self.assertEqual(code, 200)
+        self.assertTrue(data["ok"])
+
+        code, data = self._get("/api/sessions")
+        self.assertEqual(len(data["sessions"]), 1)
+        self.assertEqual(data["sessions"][0]["count"], 1)
+
+        code, data = self._get(f"/api/sessions/get?id={sid}")
+        self.assertEqual(code, 200)
+        self.assertEqual(len(data["messages"]), 1)
+        self.assertEqual(data["messages"][0]["role"], "user")
+        self.assertEqual(data["messages"][0]["text"], "привет")
+
+        code, data = self._post("/api/sessions/delete", {"id": sid})
+        self.assertEqual(code, 200)
+        self.assertTrue(data["ok"])
+
+        code, data = self._get(f"/api/sessions/get?id={sid}")
+        self.assertEqual(code, 404)
+
+    def test_session_appended_on_run(self) -> None:
+        _code, data = self._post("/api/sessions", {"title": "Задачи"})
+        sid = data["session"]["id"]
+        code, data = self._post("/api/run", {
+            "goal": "найди", "capabilities": ["web-search"],
+            "dry_run": True, "session": sid,
+        })
+        self.assertEqual(code, 200)
+        self.assertEqual(data["job"]["session"], sid)
+        self._wait_status(data["job"]["id"], TERMINAL)
+        time.sleep(0.1)  # дать потоку записать итог задачи в сессию
+        _code, session = self._get(f"/api/sessions/get?id={sid}")
+        roles = [m["role"] for m in session["messages"]]
+        self.assertIn("user", roles)
+        self.assertIn("assistant", roles)
+
+    def test_sessions_append_unknown_404(self) -> None:
+        code, data = self._post("/api/sessions/append", {"id": "нет", "text": "x"})
+        self.assertEqual(code, 404)
+        self.assertFalse(data["ok"])
+
     # --- запуск задач и подтверждение ---
     def test_run_auto_job_and_poll(self) -> None:
         code, data = self._post("/api/run", {

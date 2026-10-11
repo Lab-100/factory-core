@@ -307,6 +307,13 @@ class WebDashboardTest(unittest.TestCase):
         code, data = self._get("/api/export?kind=session&id=nope&format=md")
         self.assertEqual(code, 404)
 
+    # --- проектные настройки ---
+    def test_api_project(self) -> None:
+        code, data = self._get("/api/project")
+        self.assertEqual(code, 200)
+        self.assertIn("path", data)
+        self.assertIn("data", data)
+
     # --- запуск задач и подтверждение ---
     def test_run_auto_job_and_poll(self) -> None:
         code, data = self._post("/api/run", {

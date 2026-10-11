@@ -129,6 +129,7 @@ _TEMPLATE = """<!doctype html>
  </section>
  <section><h2>{{t_jobs}}</h2><div id="jobs"></div></section>
  <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
+ <section><h2>{{t_project}}</h2><div id="project"></div></section>
  <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
@@ -153,6 +154,7 @@ const T={
  thClass:'{{t_web_th_class}}',thOwner:'{{t_web_th_owner}}',thDetail:'{{t_web_th_detail}}',
  arsenalSummary:'{{t_web_arsenal_summary}}',logsAll:'{{t_web_logs_all}}',logsPh:'{{t_web_logs_ph}}',
  refresh:'{{t_web_refresh}}',
+ projNone:'{{t_proj_none}}',
  thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
  sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}'
@@ -286,6 +288,13 @@ async function load(){
  const l=await j('/api/ledger');
  document.getElementById('ledger').innerHTML='<pre>'+l.events.map(e=>esc(JSON.stringify(e))).join('\\n')+'</pre>';
 }
+async function loadProject(){
+ const p=await j('/api/project');
+ const box=document.getElementById('project');
+ box.innerHTML= p.path
+  ? '<p><code>'+esc(p.path)+'</code></p><pre>'+esc(JSON.stringify(p.data,null,2))+'</pre>'
+  : '<p>'+esc(T.projNone)+'</p>';
+}
 async function loadQuotas(){
  const q=await j('/api/quotas');
  const box=document.getElementById('quotas');
@@ -358,7 +367,7 @@ async function loadLogs(){
   '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
   '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
 }
-load();loadJobs();loadSessions();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+load();loadJobs();loadSessions();loadProject();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -422,6 +431,8 @@ def _page(lang: str) -> str:
         "t_web_refresh": tr("web.refresh"),
         "t_sessions": tr("web.sessions"),
         "t_attach": tr("web.attach"),
+        "t_project": tr("web.project"),
+        "t_proj_none": tr("web.proj_none"),
         "t_ses_new": tr("web.ses_new"),
         "t_ses_title_ph": tr("web.ses_title_ph"),
         "t_ses_open": tr("web.ses_open"),
@@ -490,6 +501,13 @@ def _handler_class():
                 settings.set(key, value)
                 settings.save()
                 return self._send({"ok": True, "key": key, "value": settings.get(key)})
+            if path == "/api/project":
+                from .. import projects
+                project_path = settings.project_path
+                return self._send({
+                    "path": str(project_path) if project_path else None,
+                    "data": projects.load_project(project_path) if project_path else {},
+                })
             if path == "/api/domains":
                 return self._send({"domains": [d.to_dict() | {"name": d.name} for d in registry.all()]})
             if path == "/api/domains/toggle":

@@ -648,6 +648,34 @@ def _cmd_export(args) -> int:
     return 0
 
 
+def _cmd_project(args) -> int:
+    """Проектные настройки: показать найденный проект или создать файл."""
+    from .. import projects
+
+    _root, settings, _, _ = build_context(project=False)
+    tr = make_translator(settings)
+    action = getattr(args, "project_action", None) or "status"
+    if action == "init":
+        target = Path(args.path).resolve() if args.path else Path.cwd()
+        path = projects.init_project(target, force=args.force)
+        print(tr("project.inited", path=str(path)))
+        return 0
+    found = projects.find_project(args.path or None)
+    if action == "show":
+        config = Path(args.path).resolve() if args.path else found
+        if not config or not Path(config).is_file():
+            print(tr("project.none"))
+            return 1
+        print(tr("project.show_title", path=str(config)))
+        print(Path(config).read_text(encoding="utf-8"))
+        return 0
+    if found:
+        print(tr("project.found", path=str(found)))
+    else:
+        print(tr("project.none"))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -692,6 +720,13 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_export.add_argument("--format", default="md", choices=["md", "json", "zip"])
     p_export.add_argument("--out", default="", help=t(lang, "arg.export.out"))
     p_export.set_defaults(func=_cmd_export)
+
+    p_project = sub.add_parser("project", help=t(lang, "cmd.project"))
+    p_project.add_argument("project_action", nargs="?", default="status",
+                           choices=["status", "init", "show"])
+    p_project.add_argument("--path", default="", help=t(lang, "arg.project.path"))
+    p_project.add_argument("--force", action="store_true", help=t(lang, "arg.project.force"))
+    p_project.set_defaults(func=_cmd_project)
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
     p_ui.add_argument("--mode", choices=["cli", "web", "tray"], default="cli")

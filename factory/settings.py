@@ -41,6 +41,7 @@ class Settings:
     path: Path
     data: dict
     _pending: list = field(default_factory=list)
+    project_path: "Path | None" = None
 
     def get(self, dotted: str, default: Any = None) -> Any:
         current: Any = self.data

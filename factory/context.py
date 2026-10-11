@@ -23,9 +23,12 @@ def build_registry(root: Path, settings) -> DomainRegistry:
     return DomainRegistry(domains_file, overlays)
 
 
-def build_context():
+def build_context(project: bool = True, start=None):
     root = repo_root()
     settings = load_settings(root / "config" / "settings.toml")
+    if project:
+        from .projects import apply_project
+        apply_project(settings, start=start)
     registry = build_registry(root, settings)
     ledger = Ledger(root / str(settings.get("ledger_path", "state/ledger.jsonl")))
     return root, settings, registry, ledger

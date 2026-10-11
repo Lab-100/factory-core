@@ -48,7 +48,8 @@
 | 5.5 | Пульт оператора (CLI + дашборд) | ✅ | `factory/ui/cli.py`, `factory/ui/web.py`; `factory doctor` показывает и адаптеры, и интеграции |
 | **5.6** | Каталог артефактов `catalog/` | ✅ | запись — `factory/dispatch.py` (`_write_catalog`); просмотр — `factory/catalog.py`, `factory catalog`, `/api/catalog`, раздел дашборда |
 | **5.7** | Сессии — история запросов и ответов | ✅ | `factory/sessions.py` (`invr.session/1`), `factory sessions` (`list`/`new`/`show`/`add`/`rm`), привязка задачи `factory run --session <id>`, запись итога из `factory/jobs.py` |
-| **5.8** | Вложения и экспорт | ✅ | вложения — `factory/attachments.py` (`state/uploads/<scope>/`), загрузка `POST /api/upload` (multipart), поле `inputs.attachments`; экспорт — `factory/export.py`, `factory export <job|session> <id>` (`md`/`json`/`zip`), `/api/export`; кнопки в дашборде |
+| **5.8** | Вложения и экспорт | ✅ | вложения — `factory/attachments.py` (`state/uploads/<scope>/`), загрузка `POST /api/upload` (multipart), поле `inputs.attachments`; экспорт — `factory/export.py`, `factory export <job\|session> <id>` (`md`/`json`/`zip`), `/api/export`; кнопки в дашборде |
+| **5.9** | Проектные настройки | ✅ | `factory/projects.py` (поиск `.factory/settings.toml`/`factory.toml` вверх, глубокое слияние с глобальными), `factory project status|init|show`, `/api/project`, раздел дашборда |
 
 ## Публикация (Windows + GitHub)
 
@@ -100,6 +101,7 @@ infra-graph, Ollama) — реальные: при отсутствии репо�
 | Очередь задач и полуавтомат | `tests/test_jobs.py` (фоновый прогон, `awaiting-approval` → `approve`, авто-восстановление) |
 | Сессии (создание/просмотр/добавление/привязка задачи) | `tests/test_sessions.py` |
 | Вложения (санитизация, уникализация, лимит, защита путей) и экспорт (md/json/zip) | `tests/test_attachments.py`, `tests/test_export.py` |
+| Проектные настройки (поиск вверх, глубокое слияние, init) | `tests/test_projects.py` |
 | Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение, арсенал, журналы, действие супервизора) |
 | Арсенал, узлы, супервизор, журналы | `tests/test_arsenal.py`, `tests/test_nodes.py`, `tests/test_supervisor.py`, `tests/test_logs.py` |
 | Реактивная смена региона при гео-блоке, критерии приёмки, vision-изображения (§4.5) | `tests/test_dispatch.py` (`test_region_retry_on_geoblock`, `test_acceptance_recorded`, `test_vision_step_carries_images`), `tests/test_adapters.py::LocalLlmImagesTest` |

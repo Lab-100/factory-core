@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from factory import inventory
 from factory.settings import Settings
@@ -68,6 +70,25 @@ class InventoryTest(unittest.TestCase):
     def test_locate_uses_configured_paths(self) -> None:
         self.assertEqual(inventory.locate(self.settings, "Lab100"), self.root / "Lab100")
         self.assertEqual(inventory.locate(self.settings, "region-spoof"), self.root / "region-spoof")
+
+    def test_locate_tools_store_from_home(self) -> None:
+        # склад INVR (~/.devstation/tools) обнаруживается сам, без настройки пути
+        home = self.root / "home"
+        store = home / ".devstation" / "tools"
+        (store / "registry" / "doc-extract" / "1.0.0").mkdir(parents=True)
+        (store / "resolve-tools.ps1").write_text("#", encoding="utf-8")
+        nested = self.root / "nested" / "factory"
+        (nested / "config").mkdir(parents=True)
+        (nested / "config" / "settings.toml").write_text("", encoding="utf-8")
+        settings = Settings(nested / "config" / "settings.toml", {})
+        with mock.patch.dict(os.environ, {"USERPROFILE": str(home), "HOME": str(home)}):
+            for name in ("INVR_TOOLS_ROOT", "DEVSTATION_TOOLS"):
+                os.environ.pop(name, None)
+            self.assertEqual(inventory.locate(settings, "scripts-tools"), store)
+            data = inventory.build(settings)
+        source = data["sources"]["scripts-tools"]
+        self.assertTrue(source["available"])
+        self.assertEqual(source["count"], 1)
 
     def test_scanners(self) -> None:
         tools = inventory._scan_tools(self.root / "scripts-tools")

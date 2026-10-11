@@ -59,16 +59,48 @@ def resolve(root: Path, value: str | Path) -> Path:
     return path if path.is_absolute() else (root / path)
 
 
+# Признаки склада инструментов INVR-Tools: шим resolve-tools или реестр версий.
+_TOOLS_SHIMS = ("resolve-tools.ps1", "resolve-tools.cmd", "resolve-tools.bat",
+                "resolve-tools.exe")
+
+
+def _looks_like_tools_root(path: Path) -> bool:
+    """Похож ли каталог на склад инструментов INVR-Tools."""
+    try:
+        if not path.is_dir():
+            return False
+    except OSError:
+        return False
+    if any((path / name).exists() for name in _TOOLS_SHIMS):
+        return True
+    return (path / "registry").is_dir()
+
+
 def tools_root() -> Path | None:
     """Корень склада инструментов INVR-Tools.
 
-    Берётся из переменных окружения (``INVR_TOOLS_ROOT`` или
+    Сначала берётся из переменных окружения (``INVR_TOOLS_ROOT`` или
     ``DEVSTATION_TOOLS``) — так конфиг фабрики остаётся переносимым между
-    машинами: пути к состоянию и журналам mcp-watchdog выводятся из него,
-    а не прописываются в репозиторий.
+    машинами. Если переменные не заданы, склад ищется автоматически: рядом
+    с корнем фабрики (``scripts-tools``, ``tools``) и в домашнем каталоге
+    (``~/.devstation/tools``, ``~/.devstation``) — по наличию шима
+    ``resolve-tools`` или каталога ``registry``. Пути к состоянию и журналам
+    mcp-watchdog выводятся из него, а не прописываются в репозиторий.
     """
     for env_name in ("INVR_TOOLS_ROOT", "DEVSTATION_TOOLS"):
         value = os.environ.get(env_name)
         if value:
             return Path(value)
+    base = repo_root()
+    home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME")
+                or str(Path.home()))
+    for candidate in (
+        base.parent / "scripts-tools",
+        base.parent / "tools",
+        base / "tools",
+        home / ".devstation" / "tools",
+        home / ".devstation",
+    ):
+        if _looks_like_tools_root(candidate):
+            return candidate
     return None

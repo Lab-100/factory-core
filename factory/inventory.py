@@ -19,7 +19,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .paths import repo_root
+from .paths import repo_root, tools_root
 
 SHIM_SUFFIXES = (".ps1", ".cmd", ".bat", ".exe")
 
@@ -92,6 +92,11 @@ def _locate(settings, spec: dict) -> Path | None:
     base = _base(settings)
     for name in spec["names"]:
         candidates += [base.parent / name, base / name, Path.cwd() / name]
+    # Общий корень склада инструментов (env INVR_TOOLS_ROOT или авто-поиск):
+    # так склад находится так же, как его видит адаптер invr.
+    store = tools_root()
+    if store is not None:
+        candidates.append(store)
     for candidate in candidates:
         if candidate and any((candidate / probe).exists() for probe in spec["probe"]):
             return candidate

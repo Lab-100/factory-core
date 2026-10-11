@@ -228,8 +228,12 @@ python -m factory run examples/task.tools.json --dry-run
 `log`). Значения по умолчанию — в `factory/arsenal.py`.
 
 Пути к состоянию и журналу mcp-watchdog (`[sources]`) можно не задавать — они
-выводятся из `INVR_TOOLS_ROOT` (`<tools-root>\mcp-watchdog\state\current.json` и
-`<tools-root>\Logs\mcp-watchdog.log`), поэтому конфиг остаётся переносимым.
+выводятся из корня склада инструментов INVR-Tools: `<tools-root>\mcp-watchdog\state\current.json`
+и `<tools-root>\Logs\mcp-watchdog.log`. Корень берётся из `INVR_TOOLS_ROOT`
+(`DEVSTATION_TOOLS`), а если переменные не заданы — находится автоматически
+рядом с фабрикой (`scripts-tools`, `tools`) или в `~/.devstation/tools`.
+Тот же автообнаруженный склад использует инвентаризация (`repo:scripts-tools`
+и класс `tool` в арсенале). Поэтому конфиг остаётся переносимым.
 
 ## Языки интерфейсов
 

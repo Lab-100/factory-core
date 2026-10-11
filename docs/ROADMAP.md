@@ -26,7 +26,7 @@
 | Визуализация «что работает / что нет» + перезапуск службы | `factory/ui/web.py` (`/api/arsenal`, `/api/supervise/action`) |
 | Docker-службы исключены (`docker`/`gordon`/`model-runner`) | показаны как `unloaded`, а не как сбой |
 | Docker-инструменты склада исключены (`dmr-model`/`dmr-router`/`gordon`/`gordon-chat`) | `factory/arsenal.py` (`DOCKER_TOOLS`), показаны как `unloaded` |
-| Пути mcp-watchdog выводятся из `INVR_TOOLS_ROOT` | `factory/paths.py` (`tools_root`), `factory/arsenal.py`, `factory/logs.py` — конфиг переносим |
+| Корень склада инструментов: `INVR_TOOLS_ROOT`/`DEVSTATION_TOOLS`, иначе автообнаружение (`scripts-tools`, `~/.devstation/tools`) | `factory/paths.py` (`tools_root`); используется `factory/inventory.py`, `factory/arsenal.py`, `factory/logs.py` — конфиг переносим |
 
 ## Быстрые победы (раздел 8)
 

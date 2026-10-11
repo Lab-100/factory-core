@@ -183,11 +183,18 @@ class Dispatcher:
                     continue
 
             adapter = self.adapters.get(step.adapter)
-            if adapter is None or not adapter.available():
+            if adapter is None:
+                res = StepResult(False, "unavailable", step.adapter, step.action,
+                                 error="адаптер не найден")
+            elif dry_run:
+                # в dry-run не требуем наличия репозиториев/инструментов:
+                # показываем весь план как «simulated», а не как недоступность
+                res = adapter.run(step.action, step.params, dry_run=True)
+            elif not adapter.available():
                 res = StepResult(False, "unavailable", step.adapter, step.action,
                                  error="адаптер недоступен")
             else:
-                res = adapter.run(step.action, step.params, dry_run=dry_run)
+                res = adapter.run(step.action, step.params, dry_run=False)
             results.append(res)
             self.ledger.append({
                 "kind": "step",

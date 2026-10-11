@@ -6,6 +6,7 @@ venv/
 env/
 state/
 catalog/
+config/profiles/_runtime.toml
 build/
 dist/
 *.egg-info/

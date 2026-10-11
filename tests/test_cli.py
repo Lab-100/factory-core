@@ -1,9 +1,82 @@
-"""Тесты CLI: регистрация новых команд и помощников вывода."""
+"""Тесты CLI: регистрация команд, помощники вывода и работа с контекстом."""
 from __future__ import annotations
 
+import argparse
+import io
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from unittest import mock
 
+from factory.domains import DomainRegistry
+from factory.ledger import Ledger
+from factory.settings import Settings
+from factory.ui import cli
 from factory.ui.cli import _fmt_num, _inventory_detail, _ledger_detail, build_parser
+
+DOMAINS = """
+schema = "invr.factory.domains/1"
+match_by = "auto"
+
+[domain.research]
+enabled = true
+priority = 50
+capabilities = ["web-search"]
+"""
+
+
+class CliContextTest(unittest.TestCase):
+    """Проверки команд, работающих с рабочим контекстом (домены, каталог)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "config" / "profiles").mkdir(parents=True)
+        self.settings_path = self.root / "config" / "settings.toml"
+        self.settings_path.write_text("", encoding="utf-8")
+        (self.root / "config" / "domains.toml").write_text(DOMAINS, encoding="utf-8")
+        self.settings = Settings(self.settings_path, {})
+        self.registry = DomainRegistry(self.root / "config" / "domains.toml", [])
+        self.ledger = Ledger(self.root / "ledger.jsonl")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _patch(self):
+        return mock.patch("factory.ui.cli.build_context",
+                          return_value=(self.root, self.settings, self.registry, self.ledger))
+
+    def test_domain_disable_persists(self) -> None:
+        with self._patch():
+            rc = cli._cmd_domains(argparse.Namespace(action="disable", name="research", value=50))
+        self.assertEqual(rc, 0)
+        overlay = self.root / "config" / "profiles" / "_runtime.toml"
+        self.assertTrue(overlay.exists())
+        reloaded = DomainRegistry(self.root / "config" / "domains.toml", [overlay])
+        self.assertFalse(reloaded.get("research").enabled)
+
+    def test_unknown_domain_is_reported(self) -> None:
+        with self._patch(), redirect_stderr(io.StringIO()) as err:
+            rc = cli._cmd_domains(argparse.Namespace(action="disable", name="нет", value=50))
+        self.assertEqual(rc, 1)
+        self.assertIn("нет", err.getvalue())
+
+    def test_catalog_domain_filter(self) -> None:
+        for domain, name in (("news", "t1"), ("weather", "t2")):
+            folder = self.root / "catalog" / domain / name
+            folder.mkdir(parents=True)
+            (folder / "result.json").write_text(
+                json.dumps({"ok": True, "task": {"goal": "цель"}, "results": [1]}),
+                encoding="utf-8")
+        with self._patch(), redirect_stdout(io.StringIO()) as out:
+            rc = cli._cmd_catalog(argparse.Namespace(action="list", path="",
+                                                    domain="news", json=False))
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("t1", text)
+        self.assertNotIn("t2", text)
 
 
 class CliTest(unittest.TestCase):

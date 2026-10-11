@@ -41,8 +41,13 @@ def _cmd_status(args) -> int:
     return 0
 
 
+def _runtime_overlay(root: Path, settings) -> Path:
+    """Путь рантайм-профиля доменов (config/profiles/_runtime.toml)."""
+    return root / str(settings.get("profiles_dir", "config/profiles")) / "_runtime.toml"
+
+
 def _cmd_domains(args) -> int:
-    _, settings, registry, _ = build_context()
+    root, settings, registry, _ = build_context()
     tr = make_translator(settings)
     if args.action in ("list", None):
         for dom in registry.all():
@@ -56,10 +61,20 @@ def _cmd_domains(args) -> int:
             return 1
         print(json.dumps(dom.to_dict(), ensure_ascii=False, indent=2))
     elif args.action in ("enable", "disable"):
-        dom = registry.set_enabled(args.name, args.action == "enable")
+        try:
+            dom = registry.set_enabled(args.name, args.action == "enable")
+        except KeyError:
+            print(tr("err.domain_not_found", name=args.name), file=sys.stderr)
+            return 1
+        registry.persist_overlay(_runtime_overlay(root, settings))
         print(tr("domains.set_enabled", name=dom.name, enabled=dom.enabled))
     elif args.action == "priority":
-        dom = registry.set_priority(args.name, args.value)
+        try:
+            dom = registry.set_priority(args.name, args.value)
+        except KeyError:
+            print(tr("err.domain_not_found", name=args.name), file=sys.stderr)
+            return 1
+        registry.persist_overlay(_runtime_overlay(root, settings))
         print(f"{dom.name}: priority={dom.priority}")
     else:
         print(tr("err.unknown_action", action=args.action), file=sys.stderr)
@@ -428,16 +443,19 @@ def _cmd_catalog(args) -> int:
         print(text, end="" if text.endswith("\n") else "\n")
         return 0
     data = catalog.build(settings)
+    items = data["items"]
+    if args.domain:
+        items = [item for item in items if item["domain"] == args.domain]
     if args.json:
+        data["items"] = items
+        data["count"] = len(items)
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
-    print(tr("catalog.title", count=data["count"], base=data["base"]))
-    if not data["items"]:
+    print(tr("catalog.title", count=len(items), base=data["base"]))
+    if not items:
         print(tr("catalog.empty"))
         return 0
-    for item in data["items"]:
-        if args.domain and item["domain"] != args.domain:
-            continue
+    for item in items:
         mark = "[ok]" if item["ok"] else ("[--]" if item["stopped"] else "[!!]")
         print(tr("catalog.line", mark=mark, domain=item["domain"] or "-",
                  name=item["name"], steps=item["steps"],

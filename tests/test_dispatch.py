@@ -57,6 +57,20 @@ class FakeSourceAdapter(Adapter):
                           {"stdout": "категория: web-search | источник: local-browser\n"})
 
 
+class UnavailableAdapter(Adapter):
+    """Недоступный адаптер: dry-run должен пройти, реальный вызов — нет."""
+
+    name = "region"
+
+    def available(self) -> bool:
+        return False
+
+    def run(self, action, params, dry_run=False):  # noqa: ANN001
+        if dry_run:
+            return StepResult(True, "simulated", self.name, action, {"note": "dry-run"})
+        raise AssertionError("недоступный адаптер не должен вызываться без dry-run")
+
+
 class DispatcherTest(unittest.TestCase):
     def _make(self, automation: str = "auto"):
         tmp = tempfile.TemporaryDirectory()
@@ -140,6 +154,31 @@ class DispatcherTest(unittest.TestCase):
             task = Task(goal="найди", capabilities=["web-search"])
             _, steps = dispatcher.plan(task)
             self.assertFalse(any(s.capability == "region-switch" for s in steps))
+        finally:
+            tmp.cleanup()
+
+    def test_dry_run_simulates_unavailable_adapters(self) -> None:
+        """dry-run не зависит от наличия репозиториев/инструментов."""
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / "config").mkdir()
+            (root / "domains.toml").write_text(BASE, encoding="utf-8")
+            registry = DomainRegistry(root / "domains.toml", [])
+            settings = Settings(root / "config" / "settings.toml", dict(SETTINGS))
+            settings.set("automation.mode", "auto")
+            adapters = {"lab100": FakeAdapter(settings), "llm_local": FakeLlm(settings),
+                        "region": UnavailableAdapter(settings)}
+            dispatcher = Dispatcher(settings, registry, Ledger(root / "ledger.jsonl"),
+                                    adapters=adapters, integrations={})
+            task = Task(goal="найди", capabilities=["web-search"],
+                        constraints={"allow_region_switch": True})
+            result = dispatcher.execute(task, dry_run=True)
+            self.assertTrue(result["ok"])
+            statuses = [r["status"] for r in result["results"]]
+            self.assertNotIn("unavailable", statuses)
+            region = [r for r in result["results"] if r["adapter"] == "region"]
+            self.assertEqual(region[0]["status"], "simulated")
         finally:
             tmp.cleanup()
 

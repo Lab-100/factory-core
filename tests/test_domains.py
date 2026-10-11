@@ -79,6 +79,17 @@ class DomainRegistryTest(unittest.TestCase):
         self.registry.set_enabled("infra", False)
         self.assertEqual(self.registry.resolve(task), [])
 
+    def test_persist_overlay_roundtrip(self) -> None:
+        """Правка домена сохраняется в рантайм-профиль и переживает перезагрузку."""
+        overlay = Path(self.tmp.name) / "_runtime.toml"
+        self.registry.set_enabled("infra", False)
+        self.registry.set_priority("research", 7)
+        self.registry.persist_overlay(overlay)
+        self.assertTrue(overlay.exists())
+        reloaded = DomainRegistry(Path(self.tmp.name) / "domains.toml", [overlay])
+        self.assertFalse(reloaded.get("infra").enabled)
+        self.assertEqual(reloaded.get("research").priority, 7)
+
 
 if __name__ == "__main__":
     unittest.main()

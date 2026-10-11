@@ -9,7 +9,7 @@ from factory.ui.cli import _fmt_num, _inventory_detail, _ledger_detail, build_pa
 class CliTest(unittest.TestCase):
     def test_new_commands_registered(self) -> None:
         parser = build_parser()
-        for name in ("inventory", "quotas", "watchdog", "ledger", "manifest"):
+        for name in ("inventory", "quotas", "watchdog", "ledger", "manifest", "catalog"):
             args = parser.parse_args([name])
             self.assertTrue(callable(getattr(args, "func", None)),
                             f"команда {name} без обработчика")
@@ -37,6 +37,18 @@ class CliTest(unittest.TestCase):
     def test_inventory_detail(self) -> None:
         self.assertIn("tools=1", _inventory_detail("scripts-tools", {"count": 1, "shims": ["a"]}))
         self.assertIn("providers=2", _inventory_detail("Lab100", {"count": 2}))
+
+    def test_catalog_args(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["catalog"])
+        self.assertEqual(args.action, "list")
+        self.assertEqual(args.path, "")
+        args = parser.parse_args(["catalog", "show", "news/t1"])
+        self.assertEqual(args.action, "show")
+        self.assertEqual(args.path, "news/t1")
+        args = parser.parse_args(["catalog", "--domain", "news", "--json"])
+        self.assertEqual(args.domain, "news")
+        self.assertTrue(args.json)
 
 
 if __name__ == "__main__":

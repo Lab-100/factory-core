@@ -19,6 +19,7 @@ Copy-Item "LICENSE" $pkg
 if (Test-Path "project.json") { Copy-Item "project.json" $pkg }
 Copy-Item "scripts\install.ps1" "$pkg\install.ps1"
 Copy-Item "scripts\uninstall.ps1" "$pkg\uninstall.ps1"
+Copy-Item "scripts\factory.ps1" "$pkg\factory.ps1"
 
 $zip = "dist\factory-core-win.zip"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue

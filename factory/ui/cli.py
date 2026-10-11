@@ -124,20 +124,33 @@ def _cmd_ui(args) -> int:
     return 0
 
 
+def _print_health(row: dict, name_key: str) -> None:
+    """Печать одной строки диагностики: маркер, имя и подробности."""
+    mark = "[ok]" if row.get("available") else "[--]"
+    print(f"{mark} {row.get(name_key)}")
+    for key, value in row.items():
+        if key in (name_key, "available") or value in (None, [], {}, ""):
+            continue
+        print(f"      {key}: {value}")
+
+
 def _cmd_doctor(args) -> int:
-    """Диагностика: какие исполнители и зависимости доступны."""
+    """Диагностика: какие исполнители, интеграции и зависимости доступны."""
     _, settings, _, _ = build_context()
     tr = make_translator(settings)
-    rows = run_doctor(settings)
-    for row in rows:
-        mark = "[ok]" if row.get("available") else "[--]"
-        print(f"{mark} {row.get('adapter')}")
-        for key, value in row.items():
-            if key in ("adapter", "available") or value in (None, [], {}, ""):
-                continue
-            print(f"      {key}: {value}")
-    ready, total = summarize(rows)
+    data = run_doctor(settings)
+    adapters = data["adapters"]
+    integrations = data["integrations"]
+    print(tr("doctor.adapters"))
+    for row in adapters:
+        _print_health(row, "adapter")
+    ready, total = summarize(adapters)
+    print(tr("doctor.integrations"))
+    for row in integrations:
+        _print_health(row, "integration")
+    ready_int = sum(1 for row in integrations if row.get("available"))
     print(f"\n{tr('doctor.ready', ready=ready, total=total)}")
+    print(tr("doctor.integrations_ready", ready=ready_int, total=len(integrations)))
     if ready < total:
         print(tr("doctor.hint"))
     return 0 if ready else 1
@@ -398,6 +411,40 @@ def _cmd_manifest(args) -> int:
     return 0
 
 
+def _cmd_catalog(args) -> int:
+    """Каталог артефактов: результаты задач по доменам (§5.6)."""
+    from .. import catalog
+
+    _, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    if args.action == "show":
+        if not args.path:
+            print(tr("catalog.need_path"), file=sys.stderr)
+            return 2
+        text = catalog.report(settings, args.path)
+        if text is None:
+            print(tr("catalog.not_found", path=args.path), file=sys.stderr)
+            return 1
+        print(text, end="" if text.endswith("\n") else "\n")
+        return 0
+    data = catalog.build(settings)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print(tr("catalog.title", count=data["count"], base=data["base"]))
+    if not data["items"]:
+        print(tr("catalog.empty"))
+        return 0
+    for item in data["items"]:
+        if args.domain and item["domain"] != args.domain:
+            continue
+        mark = "[ok]" if item["ok"] else ("[--]" if item["stopped"] else "[!!]")
+        print(tr("catalog.line", mark=mark, domain=item["domain"] or "-",
+                 name=item["name"], steps=item["steps"],
+                 goal=str(item["goal"])[:60]))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -483,6 +530,13 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
 
     p_manifest = sub.add_parser("manifest", help=t(lang, "cmd.manifest"))
     p_manifest.set_defaults(func=_cmd_manifest)
+
+    p_catalog = sub.add_parser("catalog", help=t(lang, "cmd.catalog"))
+    p_catalog.add_argument("action", nargs="?", default="list", choices=["list", "show"])
+    p_catalog.add_argument("path", nargs="?", default="", help=t(lang, "arg.catalog.path"))
+    p_catalog.add_argument("--domain", default=None, help=t(lang, "arg.catalog.domain"))
+    p_catalog.add_argument("--json", action="store_true", help=t(lang, "arg.catalog.json"))
+    p_catalog.set_defaults(func=_cmd_catalog)
 
     return parser
 

@@ -13,6 +13,9 @@
   GET  /api/ledger                — журнал
   GET  /api/quotas                — квоты исполнителей Lab100 (этап 4)
   GET  /api/inventory             — карта «что умеем» (этап 0)
+  GET  /api/catalog               — каталог артефактов по доменам (§5.6)
+  GET  /api/catalog/show?path=    — отчёт записи каталога (report.md)
+  GET  /api/doctor                — здоровье адаптеров и интеграций
   GET  /api/jobs                  — очередь задач
   GET  /api/jobs/get?id=
   POST /api/run                   — запустить задачу (JSON invr.task/1)
@@ -68,6 +71,8 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
+ <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
+ <section><h2>{{t_doctor}}</h2><div id="doctor"></div></section>
 </main>
 <script>
 const T={
@@ -79,7 +84,8 @@ const T={
  appr:'{{t_btn_approve}}',skip:'{{t_btn_skip}}',
  profile:'{{t_profile}}',automation:'{{t_automation}}',current:'{{t_current}}',
  uiLabel:'{{t_ui_label}}',thName:'{{t_th_name}}',thPriority:'{{t_th_priority}}',
- thCaps:'{{t_th_caps}}',thState:'{{t_th_state}}',on:'{{t_on}}',off:'{{t_off}}'
+ thCaps:'{{t_th_caps}}',thState:'{{t_th_state}}',on:'{{t_on}}',off:'{{t_off}}',
+ thUpdated:'{{t_th_updated}}',catalogEmpty:'{{t_catalog_empty}}',doctorSummary:'{{t_doctor_summary}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function j(u){const r=await fetch(u);return r.json()}
@@ -160,7 +166,30 @@ async function loadMonitoring(){
   .replace('{present}',s.repos_present??0).replace('{total}',s.repos_total??0)
   .replace('{tools}',s.tools??0).replace('{providers}',s.providers??0))+'</p>';
 }
-load();loadJobs();loadQuotas();loadMonitoring();
+async function loadCatalog(){
+ const c=await j('/api/catalog');
+ const box=document.getElementById('catalog');
+ const items=c.items||[];
+ if(!items.length){box.innerHTML='<p>'+esc(T.catalogEmpty)+'</p>';return}
+ box.innerHTML='<table><tr><th>'+T.thDomain+'</th><th>'+T.thGoal+'</th><th>'+T.thUpdated+'</th><th>'+T.thState+'</th></tr>'+
+  items.map(x=>`<tr><td>${esc(x.domain||'-')}/<code>${esc(x.name)}</code></td><td>${esc(x.goal).slice(0,60)}</td>
+   <td><small>${esc((x.updated||'').slice(0,19))}</small></td>
+   <td class="${x.ok?'on':'off'}">${x.ok?T.on:T.off}</td></tr>`).join('')+'</table>';
+}
+async function loadDoctor(){
+ const d=await j('/api/doctor');
+ const adpts=d.adapters||[], ints=d.integrations||[];
+ const ready=adpts.filter(x=>x.available).length;
+ const readyInt=ints.filter(x=>x.available).length;
+ const rows=adpts.map(x=>[x.adapter,x.available]).concat(ints.map(x=>[x.integration,x.available]));
+ document.getElementById('doctor').innerHTML=
+  '<p>'+esc(T.doctorSummary
+   .replace('{ready}',ready).replace('{total}',adpts.length)
+   .replace('{iready}',readyInt).replace('{itotal}',ints.length))+'</p>'+
+  '<table><tr><th>'+T.thName+'</th><th>'+T.thState+'</th></tr>'+
+  rows.map(([n,a])=>`<tr><td>${esc(n)}</td><td class="${a?'on':'off'}">${a?T.on:T.off}</td></tr>`).join('')+'</table>';
+}
+load();loadJobs();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -208,6 +237,11 @@ def _page(lang: str) -> str:
         "t_th_remaining": tr("web.th_remaining"),
         "t_inventory_summary": tr("web.inventory_summary"),
         "t_no_data": tr("web.no_data"),
+        "t_catalog": tr("web.catalog"),
+        "t_catalog_empty": tr("web.catalog_empty"),
+        "t_doctor": tr("web.doctor"),
+        "t_doctor_summary": tr("web.doctor_summary"),
+        "t_th_updated": tr("web.th_updated"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -285,6 +319,17 @@ def _handler_class():
             if path == "/api/inventory":
                 from .. import inventory
                 return self._send(inventory.load_saved(settings) or inventory.build(settings))
+            if path == "/api/catalog":
+                from .. import catalog
+                return self._send(catalog.build(settings))
+            if path == "/api/catalog/show":
+                from .. import catalog
+                text = catalog.report(settings, query.get("path", [""])[0])
+                return self._send({"path": query.get("path", [""])[0], "content": text},
+                                  status=200 if text is not None else 404)
+            if path == "/api/doctor":
+                from ..doctor import run_doctor
+                return self._send(run_doctor(settings))
             if path == "/api/jobs":
                 return self._send({"jobs": [_jobs().summary(j) for j in _jobs().list()]})
             if path == "/api/jobs/get":

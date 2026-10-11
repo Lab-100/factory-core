@@ -138,6 +138,9 @@ def make_zip(root: Path) -> Path:
     shutil.rmtree(package, ignore_errors=True)
     package.mkdir(parents=True, exist_ok=True)
     shutil.copy2(exe, package / "factory.exe")
+    shim = root / "scripts" / "factory.ps1"
+    if shim.exists():
+        shutil.copy2(shim, package / "factory.ps1")
     for name in ("config", "schemas", "examples", "docs"):
         shutil.copytree(root / name, package / name, dirs_exist_ok=True)
     for name in ("README.md", "LICENSE", "project.json"):
@@ -348,12 +351,16 @@ def _release_body() -> str:
         "- Интеграции (этап 3): backup-util → ChangeId, orch-metrics → метрики,\n"
         "  infra-graph → карта потока работ (§4.7).\n"
         "- Инструменты склада (§4.5): прямой вызов шимов INVR (task.tools, use_domain_tools).\n"
-        "- Каталог артефактов (§5.6): task.json/result.json/report.md по домену (catalog/).\n"
+        "- Каталог артефактов (§5.6): запись task.json/result.json/report.md по домену\n"
+        "  (catalog/) и просмотр — factory catalog (list/show/--json/--domain), раздел дашборда.\n"
         "- Супервизия (этап 5): watchdog — авто-восстановление зависших задач и reload доменов.\n"
         "- Единый журнал (§8.4): задачи, шаги, метрики, квоты, изменения и каталог\n"
         "  артефактов в одной ленте (factory ledger). Манифест (§8.1): project.json.\n"
-        "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов, квоты, мониторинг), трей.\n"
+        "- Диагностика: factory doctor показывает адаптеры и интеграции (шим или локальный приёмник).\n"
+        "- Интерфейсы: CLI, веб-дашборд (запуск задач, подтверждения шагов, квоты, мониторинг,\n"
+        "  каталог, диагностика), трей.\n"
         "- Языки интерфейсов: русский (по умолчанию), English, 中文 (ui.lang).\n"
-        "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1.\n"
+        "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1,\n"
+        "  обёртка-шим scripts/factory.ps1 (§8.3).\n"
         "- Автоматический релиз: factory release (без credential-окон Git)."
     )

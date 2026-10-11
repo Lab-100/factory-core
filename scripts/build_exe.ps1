@@ -11,6 +11,8 @@ py -m PyInstaller --noconfirm --clean --onefile --name factory `
   --add-data "config;config" `
   --add-data "schemas;schemas" `
   --add-data "examples;examples" `
+  --add-data "docs;docs" `
+  --add-data "project.json;." `
   run.py
 
 if (-not (Test-Path "dist\factory.exe")) { Write-Error "Сборка не удалась"; exit 1 }

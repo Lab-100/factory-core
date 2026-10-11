@@ -10,12 +10,16 @@ Write-Host "Устанавливаю в: $install"
 New-Item -ItemType Directory -Force -Path $install | Out-Null
 Copy-Item (Join-Path $src "factory.exe") $install -Force
 
-foreach ($dir in @("config", "schemas", "examples")) {
+foreach ($dir in @("config", "schemas", "examples", "docs")) {
+    if (-not (Test-Path (Join-Path $src $dir))) { continue }
     New-Item -ItemType Directory -Force -Path (Join-Path $install $dir) | Out-Null
     Copy-Item (Join-Path $src $dir) (Join-Path $install $dir) -Recurse -Force
 }
 Copy-Item (Join-Path $src "README.md") $install -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $src "LICENSE") $install -Force -ErrorAction SilentlyContinue
+Copy-Item (Join-Path $src "project.json") $install -Force -ErrorAction SilentlyContinue
+# Обёртка-шим (§8.3): `factory.ps1 run <task.json>`
+Copy-Item (Join-Path $src "factory.ps1") $install -Force -ErrorAction SilentlyContinue
 
 # PATH (только для пользователя)
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")

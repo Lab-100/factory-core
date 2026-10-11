@@ -74,7 +74,7 @@ python -m factory run examples/task.example.json --dry-run
 python -m factory run examples/task.search.json       # реальный поиск через Lab100
 
 # диагностика и инфраструктура
-python -m factory doctor              # какие исполнители доступны
+python -m factory doctor              # исполнители (адаптеры) и интеграции (наблюдаемость)
 python -m factory jobs                # очередь задач
 python -m factory region status       # регион (region-spoof)
 python -m factory region switch --region US
@@ -104,6 +104,10 @@ python -m factory watchdog            # непрерывное наблюден�
 python -m factory ledger --limit 50   # единый журнал: задачи/шаги/метрики/квоты/изменения (§8.4)
 python -m factory ledger --kind quota # фильтр по типу события (quota, metrics, change, catalog, …)
 python -m factory manifest            # манифест фабрики project.json (invr.project/1) (§8.1)
+python -m factory catalog             # каталог артефактов: результаты задач по доменам (§5.6)
+python -m factory catalog --domain news        # только один домен
+python -m factory catalog show news/t1         # отчёт записи (report.md)
+python -m factory catalog --json               # каталог в JSON
 
 # задача с вызовом инструментов-шимов склада INVR (§4.5)
 python -m factory run examples/task.tools.json --dry-run
@@ -124,6 +128,10 @@ python -m factory run examples/task.tools.json --dry-run
 - Windows-установка: распакуйте `factory-core-win.zip` из релиза и запустите
   `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
   в PATH и меню «Пуск».
+- Обёртка-шим (§8.3): `scripts/factory.ps1` — переносимая точка входа
+  («Lab100 → инструмент → каталог»): ищет рядом `factory.exe`, иначе запускает
+  `python -m factory`; `factory.ps1 run <task.json>`, `factory.ps1 catalog`,
+  `factory.ps1 doctor`.
 
 ## Инвентаризация, квоты, супервизия и единый журнал
 
@@ -150,7 +158,9 @@ python -m factory run examples/task.tools.json --dry-run
 - **Каталог артефактов (§5.6)** — по завершении задачи диспетчер пишет
   `task.json`, `result.json` и `report.md` в каталог домена
   (`catalog/<домен>/<задача>`, переопределяется `outputs.catalog`); путь попадает
-  в результат и в журнал.
+  в результат и в журнал. Просмотр — `factory catalog` (список/`show`/`--json`,
+  фильтр `--domain`) и раздел «Каталог артефактов» в дашборде (`/api/catalog`,
+  `/api/catalog/show?path=`).
 - **Супервизия (этап 5)** — `factory watchdog` наблюдает за адаптерами, снимает
   зависшие задачи (`job-timeout`), перезагружает домены при изменении
   `config/domains.toml`/профилей и пишет события в `state/watchdog.jsonl` и ledger.

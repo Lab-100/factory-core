@@ -46,9 +46,6 @@ def serve() -> int:
     def reload_domains(icon, item):  # noqa: ANN001, ARG001
         registry.reload()
 
-    def reload_domains(icon, item):  # noqa: ANN001, ARG001
-        registry.reload()
-
     def show_quotas(icon, item):  # noqa: ANN001, ARG001
         from .. import quotas
         providers = (quotas.build(settings).get("providers")) or {}

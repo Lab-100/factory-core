@@ -32,7 +32,8 @@ class BackupIntegration:
 
     def health(self) -> dict:
         return {"integration": self.name, "available": self.available(),
-                "shim": str(self.shim()) if self.shim() else None}
+                "shim": str(self.shim()) if self.shim() else None,
+                "sink": "backup-util" if self.shim() else "local"}
 
     def record(self, paths, reason: str = "factory change", task: str | None = None) -> dict:
         paths = [str(p) for p in (paths or [])]

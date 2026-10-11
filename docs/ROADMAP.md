@@ -20,7 +20,7 @@
 |---|---|---|---|
 | 8.1 | Единый манифест фабрики со ссылками на 4 репо | ✅ | `project.json` (`invr.project/1`), `factory manifest` |
 | 8.2 | `config/domains.toml` — подвижные домены | ✅ | `config/domains.toml`, `config/profiles/*.toml` |
-| 8.3 | Обёртка-шим `factory` в реестре склада | ✅ | `pyproject.toml` (`[project.scripts] factory`), `scripts/*.ps1` |
+| 8.3 | Обёртка-шим `factory` в реестре склада | ✅ | `pyproject.toml` (`[project.scripts] factory`), `scripts/factory.ps1` (переносимая обёртка), `scripts/*.ps1` |
 | 8.4 | Единый журнал: квоты + ChangeId + метрики → ledger | ✅ | `factory/ledger.py`, `factory/dispatch.py` (`_observe`/`_record_quotas`), `state/ledger.jsonl`, `factory ledger` |
 
 ## Компоненты §5 (чего не хватало)
@@ -31,8 +31,8 @@
 | 8.2/5.2 | Реестр доменов `domains.toml` | ✅ | `config/domains.toml`, `config/profiles/*.toml` |
 | 5.3 | Диспетчер (план → исполнители → инструменты) | ✅ | `factory/dispatch.py` (`CAPABILITY_ROUTE`, шаги `tool:<имя>` → `invr`) |
 | 5.4 | Единый журнал `ledger.jsonl` | ✅ | `factory/ledger.py`; события `metrics`/`quota`/`change`/`catalog` |
-| 5.5 | Пульт оператора (CLI + дашборд) | ✅ | `factory/ui/cli.py`, `factory/ui/web.py` |
-| **5.6** | Каталог артефактов `catalog/` | ✅ | `factory/dispatch.py` (`_write_catalog`: `task.json`, `result.json`, `report.md`) |
+| 5.5 | Пульт оператора (CLI + дашборд) | ✅ | `factory/ui/cli.py`, `factory/ui/web.py`; `factory doctor` показывает и адаптеры, и интеграции |
+| **5.6** | Каталог артефактов `catalog/` | ✅ | запись — `factory/dispatch.py` (`_write_catalog`); просмотр — `factory/catalog.py`, `factory catalog`, `/api/catalog`, раздел дашборда |
 
 ## Публикация (Windows + GitHub)
 

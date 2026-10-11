@@ -30,7 +30,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.settings": "настройки фабрики",
         "cmd.run": "выполнить заказ-наряд",
         "cmd.ui": "запустить интерфейс",
-        "cmd.doctor": "диагностика адаптеров и зависимостей",
+        "cmd.doctor": "диагностика: адаптеры-исполнители и интеграции",
         "cmd.region": "регион/доступ через region-spoof",
         "cmd.jobs": "очередь задач",
         "cmd.auth": "автовход в GitHub (device flow)",
@@ -70,7 +70,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.serving": "Дашборд фабрики: http://{host}:{port}  (Ctrl+C — выход)",
         "web.stopped": "Остановлено.",
         # doctor
+        "doctor.adapters": "Адаптеры-исполнители:",
+        "doctor.integrations": "Интеграции (наблюдаемость):",
         "doctor.ready": "Готово адаптеров: {ready}/{total}",
+        "doctor.integrations_ready": "Интеграций с шимом: {ready}/{total} (остальные — локальный приёмник)",
         "doctor.hint": ("Подсказка: адаптеры ищут свои репозитории рядом с factory-core "
                         "(Lab100, region-spoof) или по переменным окружения "
                         "(INVR_TOOLS_ROOT, LAB100_DIR, REGION_SPOOF_DIR)."),
@@ -150,6 +153,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.inventory_summary": ("Репозиториев: {present}/{total}; инструментов: {tools}; "
                                   "провайдеров: {providers}"),
         "web.no_data": "нет данных",
+        "web.catalog": "Каталог артефактов",
+        "web.catalog_empty": "Каталог пуст — сначала выполните задачу.",
+        "web.doctor": "Диагностика",
+        "web.doctor_summary": ("Адаптеров готово: {ready}/{total}; интеграций с шимом: "
+                               "{iready}/{itotal}"),
+        "web.th_updated": "обновлён",
         # трей
         "tray.automation": "Автоматизация: {mode}",
         "tray.open_web": "Открыть дашборд",
@@ -207,6 +216,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.manifest": "манифест фабрики (project.json)",
         "manifest.title": "Манифест фабрики (invr.project/1)",
         "manifest.missing": "project.json не найден в корне фабрики",
+        # каталог артефактов (этап 5, §5.6)
+        "cmd.catalog": "каталог артефактов: результаты задач по доменам",
+        "arg.catalog.path": "путь записи, напр. neighborhoods/2026-10-11-t1",
+        "arg.catalog.domain": "показать только один домен",
+        "arg.catalog.json": "вывести в формате JSON",
+        "catalog.title": "Каталог артефактов ({count} записей): {base}",
+        "catalog.empty": "Каталог пуст — сначала выполните задачу (`factory run`).",
+        "catalog.line": "{mark} {domain}/{name} · шагов: {steps} · {goal}",
+        "catalog.not_found": "запись каталога не найдена: {path}",
+        "catalog.need_path": "укажите путь записи, напр. `factory catalog show <домен>/<задача>`",
     },
     "en": {
         "parser.desc": "Lab-100 Factory: control & dispatcher",
@@ -215,7 +234,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.settings": "factory settings",
         "cmd.run": "run a task (work order)",
         "cmd.ui": "start an interface",
-        "cmd.doctor": "check adapters and dependencies",
+        "cmd.doctor": "check executor adapters and integrations",
         "cmd.region": "region/access via region-spoof",
         "cmd.jobs": "jobs queue",
         "cmd.auth": "auto-login to GitHub (device flow)",
@@ -251,7 +270,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ui.cli_hint": "CLI UI: use `factory status`, `factory domains list`, etc.",
         "web.serving": "Factory dashboard: http://{host}:{port}  (Ctrl+C to quit)",
         "web.stopped": "Stopped.",
+        "doctor.adapters": "Executor adapters:",
+        "doctor.integrations": "Integrations (observability):",
         "doctor.ready": "Adapters ready: {ready}/{total}",
+        "doctor.integrations_ready": "Integrations with a shim: {ready}/{total} (the rest use the local sink)",
         "doctor.hint": ("Hint: adapters look for their repos next to factory-core "
                         "(Lab100, region-spoof) or via env vars "
                         "(INVR_TOOLS_ROOT, LAB100_DIR, REGION_SPOOF_DIR)."),
@@ -326,6 +348,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.inventory_summary": ("Repos: {present}/{total}; tools: {tools}; "
                                   "providers: {providers}"),
         "web.no_data": "no data",
+        "web.catalog": "Artifact catalog",
+        "web.catalog_empty": "The catalog is empty — run a task first.",
+        "web.doctor": "Diagnostics",
+        "web.doctor_summary": ("Adapters ready: {ready}/{total}; integrations with a shim: "
+                               "{iready}/{itotal}"),
+        "web.th_updated": "updated",
         "tray.automation": "Automation: {mode}",
         "tray.open_web": "Open dashboard",
         "tray.reload": "Reload domains",
@@ -381,6 +409,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.manifest": "factory manifest",
         "manifest.title": "Factory manifest (invr.project/1)",
         "manifest.missing": "project.json not found in the factory root",
+        # artifact catalog (stage 5, §5.6)
+        "cmd.catalog": "artifact catalog: task results by domain",
+        "arg.catalog.path": "record path, e.g. neighborhoods/2026-10-11-t1",
+        "arg.catalog.domain": "show a single domain only",
+        "arg.catalog.json": "print as JSON",
+        "catalog.title": "Artifact catalog ({count} records): {base}",
+        "catalog.empty": "The catalog is empty — run a task first (`factory run`).",
+        "catalog.line": "{mark} {domain}/{name} · steps: {steps} · {goal}",
+        "catalog.not_found": "catalog record not found: {path}",
+        "catalog.need_path": "specify a record path, e.g. `factory catalog show <domain>/<task>`",
     },
     "zh": {
         "parser.desc": "Lab-100 工厂：控制与调度",
@@ -389,7 +427,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.settings": "工厂设置",
         "cmd.run": "执行任务工单",
         "cmd.ui": "启动界面",
-        "cmd.doctor": "检查适配器与依赖",
+        "cmd.doctor": "检查执行适配器与集成",
         "cmd.region": "通过 region-spoof 切换区域/访问",
         "cmd.jobs": "任务队列",
         "cmd.auth": "自动登录 GitHub（设备流程）",
@@ -425,7 +463,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ui.cli_hint": "CLI 界面：使用 `factory status`、`factory domains list` 等",
         "web.serving": "工厂仪表板：http://{host}:{port}（Ctrl+C 退出）",
         "web.stopped": "已停止。",
+        "doctor.adapters": "执行适配器：",
+        "doctor.integrations": "集成（可观测性）：",
         "doctor.ready": "适配器就绪：{ready}/{total}",
+        "doctor.integrations_ready": "已接包（shim）的集成：{ready}/{total}（其余写入本地接收器）",
         "doctor.hint": ("提示：适配器在 factory-core 旁查找仓库（Lab100、region-spoof），"
                         "或使用环境变量（INVR_TOOLS_ROOT、LAB100_DIR、REGION_SPOOF_DIR）。"),
         "region.not_found": ("未找到 region-spoof（adapters.region_repo / REGION_SPOOF_DIR "
@@ -498,6 +539,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.th_remaining": "剩余",
         "web.inventory_summary": "仓库：{present}/{total}；工具：{tools}；提供方：{providers}",
         "web.no_data": "无数据",
+        "web.catalog": "产物目录",
+        "web.catalog_empty": "目录为空 — 请先执行任务。",
+        "web.doctor": "诊断",
+        "web.doctor_summary": "适配器就绪：{ready}/{total}；已接包的集成：{iready}/{itotal}",
+        "web.th_updated": "更新时间",
         "tray.automation": "自动化：{mode}",
         "tray.open_web": "打开仪表板",
         "tray.reload": "重新读取域",
@@ -553,6 +599,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cmd.manifest": "工厂清单文件",
         "manifest.title": "工厂清单文件（invr.project/1）",
         "manifest.missing": "在工厂根目录未找到 project.json",
+        # 产物目录（阶段 5，§5.6）
+        "cmd.catalog": "产物目录：按域查看任务结果",
+        "arg.catalog.path": "记录路径，如 neighborhoods/2026-10-11-t1",
+        "arg.catalog.domain": "仅显示一个域",
+        "arg.catalog.json": "以 JSON 输出",
+        "catalog.title": "产物目录（{count} 条记录）：{base}",
+        "catalog.empty": "目录为空 — 请先执行任务（`factory run`）。",
+        "catalog.line": "{mark} {domain}/{name} · 步骤：{steps} · {goal}",
+        "catalog.not_found": "未找到目录记录：{path}",
+        "catalog.need_path": "请指定记录路径，如 `factory catalog show <域>/<任务>`",
     },
 }
 

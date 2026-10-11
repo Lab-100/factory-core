@@ -463,6 +463,106 @@ def _cmd_catalog(args) -> int:
     return 0
 
 
+def _cmd_arsenal(args) -> int:
+    """Арсенал: единый каталог элементов и их состояний (пульт)."""
+    from ..supervisor import Supervisor
+
+    root, settings, _, ledger = build_context()
+    tr = make_translator(settings)
+    sup = Supervisor(settings, root=root, ledger=ledger)
+    data = sup.snapshot(save=not args.no_save)
+    nodes_list = data["nodes"]
+    if args.klass:
+        nodes_list = [node for node in nodes_list if node["class"] == args.klass]
+    if args.json:
+        print(json.dumps({**data, "nodes": nodes_list}, ensure_ascii=False, indent=2))
+        return 0
+    summary = data["summary"]
+    print(tr("arsenal.title", mode=data["mode"], working=summary["working"],
+             total=summary["total"], attention=summary["attention"]))
+    if not nodes_list:
+        print(tr("arsenal.empty"))
+        return 0
+    for node in nodes_list:
+        print(tr("arsenal.line", mark=_state_mark(node["state"]), state=node["state"],
+                 klass=node["class"], name=node["name"], detail=node.get("detail") or ""))
+    return 0
+
+
+def _state_mark(state: str) -> str:
+    return {
+        "active": "[ok]", "idle": "[--]", "unloaded": "[..]",
+        "need-guard": "[!!]", "fault": "[XX]", "unknown": "[??]",
+    }.get(state, "[??]")
+
+
+def _cmd_supervise(args) -> int:
+    """Супервизор арсенала: наблюдение и авто-восстановление (настройкой)."""
+    from ..supervisor import Supervisor
+
+    root, settings, _, ledger = build_context()
+    tr = make_translator(settings)
+    sup = Supervisor(settings, root=root, ledger=ledger)
+    if args.no_heal:
+        sup._no_heal = True
+    iterations = 1 if args.once else (None if not args.iterations else args.iterations)
+    interval = args.interval if args.interval is not None else float(
+        settings.get("supervision.interval_s", 30))
+    print(tr("supervise.title", mode=sup.mode,
+             autostart=("on" if sup.autostart else "off")))
+    counter = {"n": 0}
+
+    def on_tick(result: dict) -> None:
+        counter["n"] += 1
+        summary = result.get("summary", {})
+        print(tr("supervise.tick", n=counter["n"], working=summary.get("working", 0),
+                 total=summary.get("total", 0), attention=summary.get("attention", 0),
+                 actions=len(result.get("actions", []))))
+        for action in result.get("actions", []):
+            detail = ", ".join(f"{k}={v}" for k, v in action.items() if k != "action")
+            print(tr("supervise.action", action=action.get("action"), detail=detail))
+
+    try:
+        sup.run(interval=interval, iterations=iterations, on_tick=on_tick)
+    except KeyboardInterrupt:
+        print()
+    if iterations is None:
+        print(tr("supervise.stopped", n=counter["n"]))
+    return 0
+
+
+def _cmd_logs(args) -> int:
+    """Журналы арсенала: по каждому элементу и сводно."""
+    from .. import logs as logmod
+
+    _, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    if args.sources:
+        data = {"sources": logmod.sources(settings)}
+        if args.json:
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("logs.sources_title"))
+        for source in data["sources"]:
+            mark = "[ok]" if source["available"] else "[--]"
+            print(tr("logs.source_line", mark=mark, id=source["id"],
+                     path=source["path"]))
+        return 0
+    limit = args.limit or int(settings.get("logs.limit_default", 200))
+    data = logmod.tail(settings, source=args.source, limit=limit,
+                       element=args.element, level=args.level)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    if not data["lines"]:
+        print(tr("logs.empty"))
+        return 0
+    print(tr("logs.title", count=data["count"], source=args.source or "all"))
+    for item in data["lines"]:
+        print(tr("logs.line", source=item["source"], line=item["line"]))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -555,6 +655,32 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_catalog.add_argument("--domain", default=None, help=t(lang, "arg.catalog.domain"))
     p_catalog.add_argument("--json", action="store_true", help=t(lang, "arg.catalog.json"))
     p_catalog.set_defaults(func=_cmd_catalog)
+
+    p_arsenal = sub.add_parser("arsenal", help=t(lang, "cmd.arsenal"))
+    p_arsenal.add_argument("--class", dest="klass", default=None,
+                           choices=["repo", "tool", "agent", "service", "env"],
+                           help=t(lang, "arg.arsenal.class"))
+    p_arsenal.add_argument("--json", action="store_true", help=t(lang, "arg.arsenal.json"))
+    p_arsenal.add_argument("--no-save", action="store_true", help=t(lang, "arg.arsenal.no_save"))
+    p_arsenal.set_defaults(func=_cmd_arsenal)
+
+    p_supervise = sub.add_parser("supervise", help=t(lang, "cmd.supervise"))
+    p_supervise.add_argument("--once", action="store_true", help=t(lang, "arg.supervise.once"))
+    p_supervise.add_argument("--interval", type=float, default=None,
+                             help=t(lang, "arg.supervise.interval"))
+    p_supervise.add_argument("--iterations", type=int, default=0,
+                             help=t(lang, "arg.supervise.iterations"))
+    p_supervise.add_argument("--no-heal", action="store_true", help=t(lang, "arg.supervise.no_heal"))
+    p_supervise.set_defaults(func=_cmd_supervise)
+
+    p_logs = sub.add_parser("logs", help=t(lang, "cmd.logs"))
+    p_logs.add_argument("--source", default=None, help=t(lang, "arg.logs.source"))
+    p_logs.add_argument("--element", default=None, help=t(lang, "arg.logs.element"))
+    p_logs.add_argument("--level", default=None, help=t(lang, "arg.logs.level"))
+    p_logs.add_argument("--limit", type=int, default=0, help=t(lang, "arg.logs.limit"))
+    p_logs.add_argument("--sources", action="store_true", help=t(lang, "arg.logs.sources"))
+    p_logs.add_argument("--json", action="store_true", help=t(lang, "arg.logs.json"))
+    p_logs.set_defaults(func=_cmd_logs)
 
     return parser
 

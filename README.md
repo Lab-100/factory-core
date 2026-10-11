@@ -52,6 +52,7 @@ factory-core/
   factory/
     settings.py  domains.py  task.py  ledger.py  dispatch.py  context.py
     inventory.py  quotas.py  watchdog.py  jobs.py  catalog.py  doctor.py
+    arsenal.py  nodes.py  supervisor.py  logs.py
     adapters/    base.py lab100.py invr_tool.py llm_local.py region.py
     integrations/ metrics.py infra.py backup.py
     ui/          cli.py web.py tray.py
@@ -100,6 +101,16 @@ python -m factory release --no-build # использовать уже собр�
 # инвентаризация, квоты, супервизия, единый журнал, манифест
 python -m factory inventory           # карта «что умеем»: инструменты/провайдеры/регионы (этап 0)
 python -m factory inventory --json    # та же карта в JSON
+python -m factory arsenal             # арсенал: элементы и их состояния (что работает / что нет)
+python -m factory arsenal --class service   # только службы
+python -m factory arsenal --json      # снимок арсенала в JSON
+python -m factory supervise --once    # супервизор арсенала: наблюдение и авто-восстановление
+python -m factory supervise           # непрерывно (Ctrl+C для остановки)
+python -m factory supervise --no-heal # без автоподъёма служб
+python -m factory logs                # журналы арсенала (сводно)
+python -m factory logs --sources      # список источников журналов
+python -m factory logs --source opencode.log --limit 100
+python -m factory logs --element ollama   # журналы по конкретному элементу
 python -m factory quotas              # лимиты и расход исполнителей Lab100 (этап 4)
 python -m factory quotas --reset exa  # сбросить зеркальный учёт (без аргумента — по всем)
 python -m factory watchdog --once     # супервизия: проверка и авто-восстановление (этап 5)
@@ -173,6 +184,47 @@ python -m factory run examples/task.tools.json --dry-run
   сливаются в один файл.
 - **Манифест (§8.1)** — `project.json` (`invr.project/1`) связывает 4 репозитория,
   контракты и точки входа в один проект; `factory manifest` его печатает.
+
+## Арсенал, супервизор и журналы (без Docker)
+
+Фабрика — не только диспетчер задач, но и **пульт над всем арсеналом**: она
+каталогизирует и проверяет каждый элемент пяти классов и показывает оператору,
+*что работает, а что нет*.
+
+| Класс | Что это | Примеры |
+|---|---|---|
+| `repo` | исходные репозитории | scripts-tools, Lab100, region-spoof |
+| `tool` | инструменты склада | doc-extract, browsertool, backup-util |
+| `agent` | исполнители Lab100 | firecrawl, exa, ollama, gemini |
+| `service` | службы | Ollama, browsertool, Firecrawl, OpenCode, mcp-watchdog |
+| `env` | окружение OpenCode | `AGENTS.md`, `opencode.json`, `plugin/`, `skills/` |
+
+**Состояния узла:** `active` (работает), `idle` (поднимет владелец),
+`unloaded` (не развёрнут/выключен), `need-guard` (нужен оператор),
+`fault` (сбой), `unknown` (нет способа проверки).
+
+**Режимы работы** (`operation.mode`): `attached` — совместно с OpenCode (чужие
+узлы не трогаем, состояние берём и у mcp-watchdog) · `standalone` — автономно,
+без OpenCode (фабрика сама поднимает свои службы).
+
+Что даёт:
+
+- `factory arsenal` и раздел «Арсенал» в дашборде (`/api/arsenal`) — карта
+  состояния всего арсенала, кнопка перезапуска для служб;
+- `factory supervise [--once|--no-heal]` и `factory watchdog` — супервизия;
+  авто-восстановление служб с `owner = "factory"` по настройке
+  `supervision.autostart` (`auto` → включено только в `standalone`), с
+  ограничителем `max_starts_per_hour`; чужие узлы не трогаются при
+  `supervision.coexistence = true`;
+- `factory logs [--source …] [--element …]` и раздел «Журналы» в дашборде
+  (`/api/logs`) — просмотр журналов по каждому элементу и сводно (фабрика,
+  mcp-watchdog, OpenCode, службы);
+- исключённые Docker-службы (`docker`, `gordon`, `model-runner`) показаны как
+  `unloaded`, а не как сбой.
+
+Настройка служб — секция `[services.<name>]` в `config/settings.toml`
+(`kind`, `url`/`host`+`port`/`command`/`match`/`path`, `owner`, `start`, `stop`,
+`log`). Значения по умолчанию — в `factory/arsenal.py`.
 
 ## Языки интерфейсов
 

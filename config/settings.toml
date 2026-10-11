@@ -82,3 +82,59 @@ stuck_after_s = 600
 [region]
 # Регион по умолчанию для шага region-switch, если задача не задала свой
 default = "US"
+
+# --- Арсенал: пульт над всеми элементами (инструменты/службы/агенты/окружение) ---
+
+[operation]
+# Режим работы фабрики:
+#   attached   — совместно с OpenCode: чужие узлы не трогаем, состояние делим с mcp-watchdog
+#   standalone — автономно, без OpenCode: фабрика сама поднимает свои службы
+mode = "attached"
+
+[supervision]
+# Авто-восстановление служб (owner = "factory"): auto | true | false
+#   auto — включено только в режиме standalone
+autostart = "auto"
+interval_s = 30
+# Ограничитель: не более N запусков в час (0 — без ограничения)
+max_starts_per_hour = 6
+# Не вмешиваться в узлы чужих владельцев (в т.ч. OpenCode)
+coexistence = true
+
+[logs]
+# Сколько последних строк журналов показывать по умолчанию
+limit_default = 200
+# Путь к журналу OpenCode; пусто — <opencode.data_dir>/log/opencode.log
+opencode_log = ""
+
+[sources]
+# Внешние источники состояния (для режима attached)
+mcp_watchdog_state = ""   # ...\mcp-watchdog\state\current.json
+mcp_watchdog_log = ""     # ...\Logs\mcp-watchdog.log
+
+[opencode]
+# Окружение OpenCode (каталоги конфигурации и данных)
+config_dir = ""           # пусто — ~/.config/opencode
+data_dir = ""             # пусто — ~/.local/share/opencode
+required = ["AGENTS.md", "opencode.json"]
+optional = ["plugin", "skills", "agent", "rotation"]
+
+[arsenal]
+# Снимок арсенала (состояния узлов) сохраняется супервизором
+path = "state/arsenal.json"
+
+# Службы. Значения по умолчанию заданы в factory/arsenal.py; здесь можно
+# переопределить любую службу или добавить свою. Схема:
+# [services.<name>]
+# title   = "…"
+# kind    = "http | tcp | command | process | file"
+# url/host+port/command/match/path  — параметр проверки
+# owner   = "factory | opencode | external"   # factory — фабрика может поднимать
+# enabled = true
+# start   = ["…"]     # команда запуска (для standalone/авто-восстановления)
+# stop    = ["…"]     # команда остановки
+# log     = "…"       # путь к журналу службы (для просмотра в фабрике)
+# docker  = false     # true — исключить (проект без Docker)
+#
+# Исключено (проект без Docker): docker, gordon, model-runner — показаны
+# как «unloaded», а не как сбой.

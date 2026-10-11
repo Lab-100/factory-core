@@ -16,10 +16,13 @@
   GET  /api/catalog               — каталог артефактов по доменам (§5.6)
   GET  /api/catalog/show?path=    — отчёт записи каталога (report.md)
   GET  /api/doctor                — здоровье адаптеров и интеграций
+  GET  /api/arsenal               — арсенал: элементы и состояния узлов (пульт)
+  GET  /api/logs?source=&element= — журналы арсенала (по элементу и сводно)
   GET  /api/jobs                  — очередь задач
   GET  /api/jobs/get?id=
   POST /api/run                   — запустить задачу (JSON invr.task/1)
   POST /api/jobs/approve          — решение по шагу: {"id": ..., "ok": true|false}
+  POST /api/supervise/action      — действие над службой: {"element": ..., "action": "up|down|restart"}
 """
 from __future__ import annotations
 
@@ -73,6 +76,8 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
  <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
  <section><h2>{{t_doctor}}</h2><div id="doctor"></div></section>
+ <section><h2>{{t_arsenal}}</h2><div id="arsenal"></div></section>
+ <section><h2>{{t_logs}}</h2><div id="logs"></div></section>
 </main>
 <script>
 const T={
@@ -85,7 +90,10 @@ const T={
  profile:'{{t_profile}}',automation:'{{t_automation}}',current:'{{t_current}}',
  uiLabel:'{{t_ui_label}}',thName:'{{t_th_name}}',thPriority:'{{t_th_priority}}',
  thCaps:'{{t_th_caps}}',thState:'{{t_th_state}}',on:'{{t_on}}',off:'{{t_off}}',
- thUpdated:'{{t_th_updated}}',catalogEmpty:'{{t_catalog_empty}}',doctorSummary:'{{t_doctor_summary}}'
+ thUpdated:'{{t_th_updated}}',catalogEmpty:'{{t_catalog_empty}}',doctorSummary:'{{t_doctor_summary}}',
+ thClass:'{{t_web_th_class}}',thOwner:'{{t_web_th_owner}}',thDetail:'{{t_web_th_detail}}',
+ arsenalSummary:'{{t_web_arsenal_summary}}',logsAll:'{{t_web_logs_all}}',logsPh:'{{t_web_logs_ph}}',
+ refresh:'{{t_web_refresh}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function j(u){const r=await fetch(u);return r.json()}
@@ -189,7 +197,40 @@ async function loadDoctor(){
   '<table><tr><th>'+T.thName+'</th><th>'+T.thState+'</th></tr>'+
   rows.map(([n,a])=>`<tr><td>${esc(n)}</td><td class="${a?'on':'off'}">${a?T.on:T.off}</td></tr>`).join('')+'</table>';
 }
-load();loadJobs();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();
+async function loadArsenal(){
+ const a=await j('/api/arsenal');
+ const s=a.summary||{};
+ const cls={active:'on','need-guard':'wait',fault:'off'};
+ const rows=(a.nodes||[]).map(n=>{
+  const canAct=n.class==='service'&&n.meta&&n.meta.start&&n.meta.start.length;
+  const ctl=canAct?`<button onclick="act('${n.id}','restart')">↻</button>`:'';
+  return `<tr><td><code>${esc(n.name)}</code></td><td>${esc(n.class)}</td>`+
+   `<td class="${cls[n.state]||''}">${esc(n.state)}</td><td>${esc(n.owner)}</td>`+
+   `<td><small>${esc(n.detail||'')}</small></td><td>${ctl}</td></tr>`;
+ }).join('');
+ document.getElementById('arsenal').innerHTML=
+  '<p>'+esc(T.arsenalSummary.replace('{working}',s.working??0).replace('{total}',s.total??0)
+    .replace('{attention}',s.attention??0).replace('{mode}',a.mode||''))+'</p>'+
+  '<table><tr><th>'+T.thName+'</th><th>'+T.thClass+'</th><th>'+T.thState+'</th><th>'+T.thOwner+'</th><th>'+T.thDetail+'</th><th></th></tr>'+rows+'</table>';
+}
+async function act(id,action){
+ await fetch('/api/supervise/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({element:id,action})});
+ loadArsenal();loadLogs();
+}
+async function loadLogs(){
+ const sel=document.getElementById('logSrc');
+ const src=sel?sel.value:'';
+ const inp=document.getElementById('logEl');
+ const el=inp?inp.value:'';
+ const r=await j(`/api/logs?limit=200${src?('&source='+encodeURIComponent(src)):''}${el?('&element='+encodeURIComponent(el)):''}`);
+ const opts=(r.sources||[]).map(x=>`<option value="${esc(x.id)}"${src===x.id?' selected':''}>${esc(x.name)}${x.available?'':' (—)'}</option>`).join('');
+ document.getElementById('logs').innerHTML=
+  '<p><select id="logSrc" onchange="loadLogs()"><option value="">'+T.logsAll+'</option>'+opts+'</select> '+
+  '<input id="logEl" style="width:auto" placeholder="'+T.logsPh+'" value="'+esc(el)+'"> '+
+  '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
+  '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
+}
+load();loadJobs();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -242,6 +283,15 @@ def _page(lang: str) -> str:
         "t_doctor": tr("web.doctor"),
         "t_doctor_summary": tr("web.doctor_summary"),
         "t_th_updated": tr("web.th_updated"),
+        "t_arsenal": tr("web.arsenal"),
+        "t_logs": tr("web.logs"),
+        "t_web_th_class": tr("web.th_class"),
+        "t_web_th_owner": tr("web.th_owner"),
+        "t_web_th_detail": tr("web.th_detail"),
+        "t_web_arsenal_summary": tr("web.arsenal_summary"),
+        "t_web_logs_all": tr("web.logs_all"),
+        "t_web_logs_ph": tr("web.logs_ph"),
+        "t_web_refresh": tr("web.refresh"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -276,7 +326,7 @@ def _handler_class():
             return
 
         def do_GET(self):  # noqa: N802
-            _, settings, registry, ledger = build_context()
+            root, settings, registry, ledger = build_context()
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             path = parsed.path
@@ -330,6 +380,24 @@ def _handler_class():
             if path == "/api/doctor":
                 from ..doctor import run_doctor
                 return self._send(run_doctor(settings))
+            if path == "/api/arsenal":
+                from ..supervisor import Supervisor
+                sup = Supervisor(settings, root=root, ledger=ledger)
+                return self._send(sup.snapshot())
+            if path == "/api/logs":
+                from .. import logs as logmod
+                default_limit = int(settings.get("logs.limit_default", 200))
+                try:
+                    limit = int(query.get("limit", [str(default_limit)])[0] or default_limit)
+                except ValueError:
+                    limit = default_limit
+                return self._send(logmod.tail(
+                    settings,
+                    source=(query.get("source", [""])[0] or None),
+                    limit=limit,
+                    element=(query.get("element", [""])[0] or None),
+                    level=(query.get("level", [""])[0] or None),
+                ))
             if path == "/api/jobs":
                 return self._send({"jobs": [_jobs().summary(j) for j in _jobs().list()]})
             if path == "/api/jobs/get":
@@ -355,6 +423,13 @@ def _handler_class():
                     "ok": job is not None,
                     "job": _jobs().summary(job) if job else None,
                 }, status=200 if job else 404)
+            if path == "/api/supervise/action":
+                from ..supervisor import Supervisor
+                root, settings, _, ledger = build_context()
+                sup = Supervisor(settings, root=root, ledger=ledger)
+                result = sup.action(str(data.get("element") or ""),
+                                    str(data.get("action") or "up"))
+                return self._send(result, status=200 if result.get("ok") else 400)
             return self._send({"error": "not found"}, status=404)
 
     return Handler

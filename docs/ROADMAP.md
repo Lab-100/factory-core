@@ -13,6 +13,18 @@
 | 3 | Связки | region-spoof + backup-util (ChangeId) + orch-metrics + infra-graph | ✅ | `factory/adapters/region.py`, `factory/regionlib.py`, `factory/integrations/*` |
 | 4 | Пульт | CLI + дашборд домены/очередь/квоты | ✅ | `factory/ui/cli.py`, `factory/ui/web.py`, `factory/ui/tray.py`, `factory/quotas.py` |
 | 5 | Супервизия | watchdog: наблюдение и авто-восстановление | ✅ | `factory/watchdog.py`, `factory watchdog` |
+| 6 | Арсенал | единый пульт над всеми элементами (инструменты/службы/агенты/окружение) + журналы + режимы | ✅ | `factory/arsenal.py`, `factory/nodes.py`, `factory/supervisor.py`, `factory/logs.py`, `factory arsenal`/`supervise`/`logs`, `/api/arsenal`/`/api/logs` |
+
+## Арсенал и режимы (проект без Docker)
+
+| Возможность | Реализация |
+|---|---|
+| Каталог элементов 5 классов (`repo`/`tool`/`agent`/`service`/`env`) | `factory/arsenal.py` (`invr.arsenal/1`) |
+| Состояния узлов (`active`/`idle`/`unloaded`/`need-guard`/`fault`/`unknown`) | `factory/nodes.py` (`invr.nodes/1`) |
+| Супервизор: наблюдение + авто-восстановление + режимы `attached`/`standalone` | `factory/supervisor.py`, `factory supervise`, настройки `[operation]`/`[supervision]` |
+| Журналы по элементу и сводно (фабрика, mcp-watchdog, OpenCode, службы) | `factory/logs.py` (`invr.logs/1`), `factory logs`, `/api/logs` |
+| Визуализация «что работает / что нет» + перезапуск службы | `factory/ui/web.py` (`/api/arsenal`, `/api/supervise/action`) |
+| Docker-службы исключены (`docker`/`gordon`/`model-runner`) | показаны как `unloaded`, а не как сбой |
 
 ## Быстрые победы (раздел 8)
 
@@ -61,7 +73,8 @@ infra-graph, Ollama) — реальные: при отсутствии репо�
 | Диспетчер, домены, квоты, каталог, ledger, интеграции | изолированные тесты `tests/` (внешние вызовы — на подставных адаптерах) |
 | Реальный запуск шима INVR (подпроцесс) | `tests/test_adapters.py::InvrShimExecutionTest` (шим создаётся во временном каталоге) |
 | Очередь задач и полуавтомат | `tests/test_jobs.py` (фоновый прогон, `awaiting-approval` → `approve`, авто-восстановление) |
-| Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение) |
+| Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение, арсенал, журналы, действие супервизора) |
+| Арсенал, узлы, супервизор, журналы | `tests/test_arsenal.py`, `tests/test_nodes.py`, `tests/test_supervisor.py`, `tests/test_logs.py` |
 | Живой контекст/инвентарь/сквозной dry-run | `FACTORY_LIVE=1 python -m unittest tests.test_live` (в CI пропускается) |
 
 Реальные внешние вызовы (Lab100, Ollama, region-spoof за пределами dry-run)

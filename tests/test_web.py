@@ -191,6 +191,23 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIsInstance(data["adapters"], list)
         self.assertIsInstance(data["integrations"], list)
 
+    def test_api_arsenal_logs_and_supervise(self) -> None:
+        code, data = self._get("/api/arsenal")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["schema"], "invr.nodes/1")
+        self.assertIn("nodes", data)
+        self.assertIsInstance(data["summary"]["working"], int)
+
+        code, data = self._get("/api/logs")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["schema"], "invr.logs/1")
+        self.assertIsInstance(data["sources"], list)
+
+        # действие над неслужебным элементом отклоняется (400)
+        code, data = self._post("/api/supervise/action", {"element": "repo:none", "action": "up"})
+        self.assertEqual(code, 400)
+        self.assertFalse(data["ok"])
+
     def test_api_jobs_empty_and_unknown_404(self) -> None:
         code, data = self._get("/api/jobs")
         self.assertEqual(code, 200)

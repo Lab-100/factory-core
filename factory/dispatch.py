@@ -1,10 +1,11 @@
 """Диспетчер фабрики: план и исполнение заказ-наряда.
 
 Связывает домены → компетенции → адаптеры (Lab100 / INVR / локальная LLM / регион),
-поддерживает вызов инструментов-шимов INVR, учитывает режим автоматизации
-(auto|semi), складывает результаты в каталог артефактов и пишет единый журнал,
-сливая туда метрики (orch-metrics), квоты (Lab100) и учёт изменений
-(backup-util) — этапы 3/4 и §4.5/§5.6/§8.4.
+поддерживает вызов инструментов-шимов INVR, реактивную смену региона при
+гео-блокировке подходящего шага, учитывает режим автоматизации (auto|semi),
+складывает результаты в каталог артефактов и пишет единый журнал, сливая туда
+метрики (orch-metrics), квоты (Lab100) и учёт изменений (backup-util) —
+этапы 3/4 и §4.5/§5.6/§8.4.
 """
 from __future__ import annotations
 
@@ -93,6 +94,18 @@ class Dispatcher:
                                or task.constraints.get("provider") or "")
                 if provider:
                     params["provider"] = provider
+            if adapter == "llm_local":
+                # vision (§4.5): пути к изображениям и модель — из входов задачи,
+                # чтобы адаптер отправил их в Ollama как мультимодальное сообщение
+                images = task.inputs.get("images")
+                if images is None and task.inputs.get("image"):
+                    images = [task.inputs["image"]]
+                if isinstance(images, (str, Path)):
+                    images = [images]
+                if images:
+                    params["images"] = [str(item) for item in images]
+                if task.inputs.get("model"):
+                    params["model"] = str(task.inputs["model"])
             steps.append(Step(len(steps), cap, adapter, action, params))
 
         # шаги-инструменты склада INVR (§4.5): шимы вызываются напрямую
@@ -148,6 +161,13 @@ class Dispatcher:
         automation = task.automation or self.settings.automation
         checkpoints = list(self.settings.checkpoints)
         task_id = task.id or (task.goal[:60] + "…" if len(task.goal) > 60 else task.goal)
+        allow_region_switch = bool(task.constraints.get("allow_region_switch")) and any(
+            d.region == "auto" for d in matched
+        )
+        default_region = str(
+            task.inputs.get("region") or task.constraints.get("region")
+            or self.settings.get("region.default", "US")
+        )
 
         self.ledger.append({
             "kind": "task.start",
@@ -195,6 +215,11 @@ class Dispatcher:
                                  error="адаптер недоступен")
             else:
                 res = adapter.run(step.action, step.params, dry_run=False)
+            # реактивная смена региона при гео-блокировке (§4.5) — одна повторная попытка
+            if (not dry_run and not res.ok and step.adapter == "lab100"
+                    and allow_region_switch and not step.params.get("region_retry")
+                    and self._looks_blocked(res)):
+                res = self._retry_after_region(task_id, step, adapter, default_region, res)
             results.append(res)
             self.ledger.append({
                 "kind": "step",
@@ -217,6 +242,7 @@ class Dispatcher:
             "results": [r.to_dict() for r in results],
             "ok": success,
             "stopped": stopped,
+            "acceptance": list(task.acceptance),
         }
         # каталог артефактов (§5.6): складываем результат по домену
         catalog: str | None = None
@@ -232,6 +258,43 @@ class Dispatcher:
         self._observe(task, task_id, matched, automation, steps, results, success, dry_run,
                       catalog=catalog)
         return summary
+
+    # --- реактивная смена региона (§4.5) ---
+    _BLOCK_MARKERS = (
+        "403", "forbidden", "location is not supported",
+        "not available in your region", "not available in your country",
+        "geo-block", "geoblock", "blocked in your region",
+        "unavailable for legal reasons", "region is blocked",
+    )
+
+    @classmethod
+    def _looks_blocked(cls, res: StepResult) -> bool:
+        """Признак гео-блокировки в ошибке шага Lab100 (повод сменить регион)."""
+        output = res.output if isinstance(res.output, dict) else {}
+        text = " ".join(str(output.get(key) or "") for key in ("stdout", "stderr", "error"))
+        text = f"{text} {res.error or ''}".lower()
+        return any(marker in text for marker in cls._BLOCK_MARKERS)
+
+    def _retry_after_region(self, task_id: str, step: Step, adapter, region: str,
+                            res: StepResult) -> StepResult:
+        """Сменить регион и повторить шаг один раз (реакция на гео-блок, §4.5)."""
+        region_adapter = self.adapters.get("region")
+        if region_adapter is None or not region_adapter.available():
+            self.ledger.append({"kind": "region-retry", "task": task_id, "step": step.id,
+                                "region": region, "ok": False,
+                                "reason": "адаптер region недоступен"})
+            return res
+        switch = region_adapter.run("switch", {"region": region})
+        self.ledger.append({"kind": "region-retry", "task": task_id, "step": step.id,
+                            "region": region, "ok": switch.ok, "switch": switch.status})
+        if not switch.ok:
+            return res
+        params = dict(step.params)
+        params["region_retry"] = True
+        retry = adapter.run(step.action, params, dry_run=False)
+        note = {"region_retry": True, "region": region}
+        retry.output = {**retry.output, **note} if isinstance(retry.output, dict) else note
+        return retry
 
     # --- каталог артефактов (§5.6) ---
     def _base(self) -> Path:
@@ -287,6 +350,11 @@ class Dispatcher:
                 lines.append("  ```")
             if res.error:
                 lines.append(f"  ошибка: {res.error}")
+        if task.acceptance:
+            lines.append("")
+            lines.append("## Критерии приёмки")
+            lines.append("_автоматически не оцениваются — проверяет оператор_")
+            lines += [f"- [ ] {item}" for item in task.acceptance]
         return "\n".join(lines) + "\n"
 
     def _observe(self, task, task_id: str, matched, automation: str, steps,

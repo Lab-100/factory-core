@@ -235,6 +235,102 @@ class DispatcherTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_region_retry_on_geoblock(self) -> None:
+        """Гео-блок Lab100 → смена региона → повтор шага (§4.5)."""
+        tmp, dispatcher, ledger = self._make("auto")
+        try:
+            calls = {"lab": 0, "switch": 0}
+
+            class BlockingLab(Adapter):
+                name = "lab100"
+
+                def run(self, action, params, dry_run=False):  # noqa: ANN001
+                    calls["lab"] += 1
+                    if params.get("region_retry"):
+                        return StepResult(True, "ok", self.name, action, {"stdout": "ok"})
+                    return StepResult(False, "error", self.name, action,
+                                      {"stderr": "403 Forbidden"}, error="403 Forbidden")
+
+            class FakeRegion(Adapter):
+                name = "region"
+
+                def available(self) -> bool:
+                    return True
+
+                def run(self, action, params, dry_run=False):  # noqa: ANN001
+                    calls["switch"] += 1
+                    return StepResult(True, "ok", self.name, action,
+                                      {"region": params.get("region")})
+
+            dispatcher.adapters = {
+                "lab100": BlockingLab(dispatcher.settings),
+                "llm_local": FakeLlm(dispatcher.settings),
+                "region": FakeRegion(dispatcher.settings),
+            }
+            task = Task(goal="найди", capabilities=["web-search"],
+                        constraints={"allow_region_switch": True})
+            result = dispatcher.execute(task, dry_run=False)
+            self.assertTrue(result["ok"])
+            self.assertEqual(calls["lab"], 2)       # упал → повтор после смены региона
+            self.assertEqual(calls["switch"], 2)    # плановый шаг + реактивный
+            retries = [e for e in ledger.tail(30) if e.get("kind") == "region-retry"]
+            self.assertEqual(len(retries), 1)
+            self.assertTrue(retries[0]["ok"])
+        finally:
+            tmp.cleanup()
+
+    def test_no_region_retry_without_permission(self) -> None:
+        """Без allow_region_switch гео-блок не приводит к повтору (§4.5)."""
+        tmp, dispatcher, ledger = self._make("auto")
+        try:
+            calls = {"lab": 0}
+
+            class BlockingLab(Adapter):
+                name = "lab100"
+
+                def run(self, action, params, dry_run=False):  # noqa: ANN001
+                    calls["lab"] += 1
+                    return StepResult(False, "error", self.name, action,
+                                      error="403 Forbidden")
+
+            dispatcher.adapters = {"lab100": BlockingLab(dispatcher.settings)}
+            task = Task(goal="найди", capabilities=["web-search"])
+            result = dispatcher.execute(task, dry_run=False)
+            self.assertFalse(result["ok"])
+            self.assertEqual(calls["lab"], 1)
+            self.assertFalse(any(e.get("kind") == "region-retry" for e in ledger.tail(30)))
+        finally:
+            tmp.cleanup()
+
+    def test_acceptance_recorded(self) -> None:
+        """Критерии приёмки попадают в итог и в отчёт (§4.5)."""
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди данные", capabilities=["answer"],
+                        acceptance=["источники указаны", "объём достаточен"])
+            result = dispatcher.execute(task, dry_run=False)
+            self.assertEqual(result["acceptance"], ["источники указаны", "объём достаточен"])
+            report = (Path(tmp.name) / result["catalog"] / "report.md").read_text(encoding="utf-8")
+            self.assertIn("Критерии приёмки", report)
+            self.assertIn("источники указаны", report)
+        finally:
+            tmp.cleanup()
+
+    def test_vision_step_carries_images(self) -> None:
+        """Компетенция vision передаёт пути к изображениям в локальную LLM (§4.5)."""
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="опиши картинку", capabilities=["vision"],
+                        inputs={"image": "C:/tmp/pic.png", "model": "llava"})
+            _, steps = dispatcher.plan(task)
+            vision = [s for s in steps if s.capability == "vision"]
+            self.assertEqual(len(vision), 1)
+            self.assertEqual(vision[0].adapter, "llm_local")
+            self.assertEqual(vision[0].params["images"], ["C:/tmp/pic.png"])
+            self.assertEqual(vision[0].params["model"], "llava")
+        finally:
+            tmp.cleanup()
+
     def test_catalog_explicit_path_used(self) -> None:
         tmp, dispatcher, _ = self._make("auto")
         try:

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from factory.adapters.invr_tool import InvrToolAdapter
 from factory.adapters.lab100 import Lab100Adapter
+from factory.adapters.llm_local import LocalLlmAdapter
 from factory.settings import Settings
 
 
@@ -107,6 +108,38 @@ class InvrShimExecutionTest(unittest.TestCase):
         self.assertTrue(health["available"])
         self.assertEqual(Path(health["root"]), self.tools)
         self.assertIn("doc-extract", health["shims"])
+
+
+class LocalLlmImagesTest(unittest.TestCase):
+    """vision (§4.5): изображения кодируются и уходят в мультимодальное сообщение."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "config").mkdir()
+        settings_path = root / "config" / "settings.toml"
+        settings_path.write_text("", encoding="utf-8")
+        self.settings = Settings(settings_path, {})
+        self.image = root / "pic.png"
+        self.image.write_bytes(b"\x89PNG\r\n\x1a\ndata")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_images_encoded_from_path(self) -> None:
+        images = LocalLlmAdapter(self.settings)._images({"image": str(self.image)})
+        self.assertEqual(len(images), 1)
+        self.assertTrue(images[0].startswith("iVBOR"))  # PNG в base64
+
+    def test_missing_image_ignored(self) -> None:
+        adapter = LocalLlmAdapter(self.settings)
+        self.assertEqual(adapter._images({"image": str(Path(self.tmp.name) / "нет.png")}), [])
+
+    def test_dry_run_reports_image_count(self) -> None:
+        res = LocalLlmAdapter(self.settings).run("vision", {"image": str(self.image)},
+                                                 dry_run=True)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.output["images"], 1)
 
 
 if __name__ == "__main__":

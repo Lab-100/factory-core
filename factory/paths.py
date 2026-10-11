@@ -57,3 +57,18 @@ def resolve(root: Path, value: str | Path) -> Path:
     """Путь относительно корня, если не абсолютный."""
     path = Path(value)
     return path if path.is_absolute() else (root / path)
+
+
+def tools_root() -> Path | None:
+    """Корень склада инструментов INVR-Tools.
+
+    Берётся из переменных окружения (``INVR_TOOLS_ROOT`` или
+    ``DEVSTATION_TOOLS``) — так конфиг фабрики остаётся переносимым между
+    машинами: пути к состоянию и журналам mcp-watchdog выводятся из него,
+    а не прописываются в репозиторий.
+    """
+    for env_name in ("INVR_TOOLS_ROOT", "DEVSTATION_TOOLS"):
+        value = os.environ.get(env_name)
+        if value:
+            return Path(value)
+    return None

@@ -27,12 +27,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import inventory
+from .paths import tools_root
 
 SCHEMA = "invr.arsenal/1"
 
 # Классы элементов и их владелец по умолчанию.
 CLASSES = ("repo", "tool", "agent", "service", "env")
 FACTORY_OWNED = ("repo", "tool", "agent", "env")
+
+# Инструменты склада, относящиеся к Docker-стеку. Проект рассчитан на работу
+# без Docker, поэтому такие инструменты помечаются как исключённые (``unloaded``),
+# а не как рабочие — по аналогии со службами с ``docker = true``.
+DOCKER_TOOLS = {"dmr-model", "dmr-router", "gordon", "gordon-chat"}
 
 # Службы по умолчанию (без Docker). Настройки могут переопределить любую
 # или добавить свою: [services.<name>]. Службы с docker = true исключены.
@@ -193,6 +199,7 @@ def _tool_elements(inv: dict) -> list[dict]:
         name = tool.get("name", "")
         if not name:
             continue
+        is_docker = name in DOCKER_TOOLS
         shim = _shim(root, name)
         target = shim or (root / "registry" / name)
         out.append(_element(
@@ -200,10 +207,11 @@ def _tool_elements(inv: dict) -> list[dict]:
             title=f"Инструмент {name}", available=bool(name),
             path=str(shim) if shim else None,
             probe={"kind": "exists", "path": str(target)},
-            owner="factory",
-            tags=["tool"],
+            owner="factory", enabled=not is_docker,
+            tags=["tool"] + (["docker"] if is_docker else []),
             meta={"versions": tool.get("versions", []), "latest": tool.get("latest", ""),
-                  "shim": str(shim) if shim else ""},
+                  "shim": str(shim) if shim else "", "docker": is_docker,
+                  "reason": "исключено: проект без Docker" if is_docker else ""},
         ))
     return out
 
@@ -249,8 +257,14 @@ def _resolve_services(settings) -> dict[str, dict]:
     # mcp-watchdog: путь состояния из [sources], если не задан явно
     watchdog = merged.get("mcp-watchdog", {})
     if watchdog.get("kind") == "file" and not watchdog.get("path"):
-        watchdog["path"] = str((settings.get("sources.mcp_watchdog_state")
-                                if settings is not None else "") or "")
+        configured = str((settings.get("sources.mcp_watchdog_state")
+                          if settings is not None else "") or "").strip()
+        if not configured:
+            # переносимо: выводим из корня склада инструментов (INVR_TOOLS_ROOT)
+            store = tools_root()
+            if store is not None:
+                configured = str(store / "mcp-watchdog" / "state" / "current.json")
+        watchdog["path"] = configured
     return merged
 
 
@@ -319,8 +333,7 @@ def build(settings=None) -> dict:
         "by_class": by_class,
         "repos_present": inv.get("summary", {}).get("repos_present", 0),
         "repos_total": inv.get("summary", {}).get("repos_total", 0),
-        "docker_excluded": sum(1 for e in elements
-                               if e["class"] == "service" and e["meta"].get("docker")),
+        "docker_excluded": sum(1 for e in elements if (e.get("meta") or {}).get("docker")),
     }
     return {
         "schema": SCHEMA,

@@ -94,7 +94,7 @@ class DispatcherTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["domains"][0], "research")
             self.assertEqual(len(result["results"]), 2)
-            self.assertEqual(len(ledger.tail(10)), 4)  # start + 2 steps + done
+            self.assertEqual(len(ledger.tail(10)), 5)  # start + 2 шага + каталог + done
         finally:
             tmp.cleanup()
 
@@ -221,6 +221,17 @@ class DispatcherTest(unittest.TestCase):
             self.assertTrue((target / "task.json").exists())
             self.assertTrue((target / "result.json").exists())
             self.assertTrue((target / "report.md").exists())
+        finally:
+            tmp.cleanup()
+
+    def test_catalog_logged_to_ledger(self) -> None:
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди данные", capabilities=["answer"])
+            result = dispatcher.execute(task, dry_run=False)
+            events = [e for e in dispatcher.ledger.tail(30) if e.get("kind") == "catalog"]
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["catalog"], result["catalog"])
         finally:
             tmp.cleanup()
 

@@ -224,6 +224,9 @@ class Dispatcher:
             catalog = self._write_catalog(task, task_id, matched, steps, results, summary)
             if catalog:
                 summary["catalog"] = catalog
+                # отдельное событие журнала: доступно через `factory ledger --kind catalog`
+                self.ledger.append({"kind": "catalog", "task": task_id,
+                                    "catalog": catalog})
         self.ledger.append({"kind": "task.done", "task": task_id, "ok": success,
                             "steps": len(results), "catalog": catalog})
         self._observe(task, task_id, matched, automation, steps, results, success, dry_run,

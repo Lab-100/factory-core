@@ -108,16 +108,19 @@ limit_default = 200
 opencode_log = ""
 
 [sources]
-# Внешние источники состояния (для режима attached)
-mcp_watchdog_state = ""   # ...\mcp-watchdog\state\current.json
-mcp_watchdog_log = ""     # ...\Logs\mcp-watchdog.log
+# Внешние источники состояния (для режима attached).
+# Пути к mcp-watchdog можно не задавать: они выводятся из INVR_TOOLS_ROOT
+# (<tools-root>\mcp-watchdog\state\current.json и <tools-root>\Logs\mcp-watchdog.log).
+# Здесь — только если раскладка нестандартная (задать абсолютно).
+mcp_watchdog_state = ""
+mcp_watchdog_log = ""
 
 [opencode]
 # Окружение OpenCode (каталоги конфигурации и данных)
 config_dir = ""           # пусто — ~/.config/opencode
 data_dir = ""             # пусто — ~/.local/share/opencode
 required = ["AGENTS.md", "opencode.json"]
-optional = ["plugin", "skills", "agent", "rotation"]
+optional = ["plugin", "plugins", "skills", "agent", "rotation"]
 
 [arsenal]
 # Снимок арсенала (состояния узлов) сохраняется супервизором

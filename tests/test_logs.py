@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from factory import logs
 from factory.settings import Settings
@@ -70,6 +72,16 @@ class LogsTest(unittest.TestCase):
     def test_level_filter_on_json(self) -> None:
         data = logs.tail(self.settings, source="factory.ledger", limit=10, level="task.done")
         self.assertEqual(data["count"], 1)
+
+    def test_sources_from_env(self) -> None:
+        # без [sources] пути mcp-watchdog выводятся из INVR_TOOLS_ROOT
+        settings = Settings(self.root / "config" / "settings.toml", {
+            "logs": {"opencode_log": str(self.root / "no-such-opencode.log")},
+        })
+        with mock.patch.dict(os.environ, {"INVR_TOOLS_ROOT": str(self.root)}):
+            listing = {s["id"]: s for s in logs.sources(settings)}
+        self.assertIn("mcp-watchdog.events", listing)
+        self.assertTrue(listing["mcp-watchdog.events"]["available"])
 
 
 if __name__ == "__main__":

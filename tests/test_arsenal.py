@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from factory import arsenal
 from factory.settings import Settings
@@ -23,6 +25,9 @@ class ArsenalTest(unittest.TestCase):
         (self.tools / "registry" / "doc-extract" / "1.0.0").mkdir(parents=True)
         (self.tools / "registry" / "doc-extract" / "latest.txt").write_text("1.0.0", encoding="utf-8")
         (self.tools / "doc-extract.cmd").write_text("@echo off", encoding="utf-8")
+        # Docker-инструмент (должен попадать в исключённые)
+        (self.tools / "registry" / "gordon" / "0.1.0").mkdir(parents=True)
+        (self.tools / "registry" / "gordon" / "latest.txt").write_text("0.1.0", encoding="utf-8")
 
         # пул ИИ
         self.lab = self.root / "Lab100"
@@ -103,11 +108,28 @@ class ArsenalTest(unittest.TestCase):
         self.assertFalse(docker["enabled"])
         self.assertGreaterEqual(data["summary"]["docker_excluded"], 3)
 
+    def test_docker_tools_excluded(self) -> None:
+        data = arsenal.build(self.settings)
+        by_id = self._by_id(data)
+        gordon = by_id["tool:gordon"]
+        self.assertTrue(gordon["meta"]["docker"])
+        self.assertFalse(gordon["enabled"])
+        self.assertFalse(by_id["tool:doc-extract"]["meta"]["docker"])
+        # 3 службы (docker/gordon/model-runner) + инструмент gordon
+        self.assertGreaterEqual(data["summary"]["docker_excluded"], 4)
+
+    def test_watchdog_path_from_env(self) -> None:
+        with mock.patch.dict(os.environ, {"INVR_TOOLS_ROOT": str(self.tools)}):
+            data = arsenal.build(self.settings)
+        watchdog = self._by_id(data)["service:mcp-watchdog"]
+        rel = watchdog["path"].replace("\\", "/")
+        self.assertTrue(rel.endswith("mcp-watchdog/state/current.json"))
+
     def test_summary_counts(self) -> None:
         data = arsenal.build(self.settings)
         summary = data["summary"]
         self.assertEqual(summary["total"], len(data["elements"]))
-        self.assertEqual(summary["by_class"]["tool"], 1)
+        self.assertEqual(summary["by_class"]["tool"], 2)  # doc-extract + gordon
         self.assertEqual(summary["by_class"]["agent"], 1)
         self.assertGreaterEqual(summary["by_class"]["service"], 9)  # 8 defaults + 1 своя
 

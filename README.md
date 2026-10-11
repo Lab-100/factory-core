@@ -219,12 +219,17 @@ python -m factory run examples/task.tools.json --dry-run
 - `factory logs [--source …] [--element …]` и раздел «Журналы» в дашборде
   (`/api/logs`) — просмотр журналов по каждому элементу и сводно (фабрика,
   mcp-watchdog, OpenCode, службы);
-- исключённые Docker-службы (`docker`, `gordon`, `model-runner`) показаны как
-  `unloaded`, а не как сбой.
+- исключённые Docker-службы (`docker`, `gordon`, `model-runner`) и
+  Docker-инструменты склада (`dmr-model`, `dmr-router`, `gordon`, `gordon-chat`)
+  показаны как `unloaded`, а не как сбой.
 
 Настройка служб — секция `[services.<name>]` в `config/settings.toml`
 (`kind`, `url`/`host`+`port`/`command`/`match`/`path`, `owner`, `start`, `stop`,
 `log`). Значения по умолчанию — в `factory/arsenal.py`.
+
+Пути к состоянию и журналу mcp-watchdog (`[sources]`) можно не задавать — они
+выводятся из `INVR_TOOLS_ROOT` (`<tools-root>\mcp-watchdog\state\current.json` и
+`<tools-root>\Logs\mcp-watchdog.log`), поэтому конфиг остаётся переносимым.
 
 ## Языки интерфейсов
 

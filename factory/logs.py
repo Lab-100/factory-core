@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .paths import repo_root
+from .paths import repo_root, tools_root
 
 # Источники «ядра» фабрики: (id, имя, ключ настройки пути, значение по умолчанию)
 CORE_SOURCES = (
@@ -71,6 +71,12 @@ def sources(settings=None) -> list[dict]:
     # mcp-watchdog: рядом с файлом состояния и в Logs/
     estado = str(_cfg(settings, "sources.mcp_watchdog_state", "") or "").strip()
     wlog = str(_cfg(settings, "sources.mcp_watchdog_log", "") or "").strip()
+    if not estado and not wlog:
+        # переносимо: выводим из корня склада инструментов (INVR_TOOLS_ROOT)
+        store = tools_root()
+        if store is not None:
+            estado = str(store / "mcp-watchdog" / "state" / "current.json")
+            wlog = str(store / "Logs" / "mcp-watchdog.log")
     if estado:
         state_dir = Path(estado).parent
         add("mcp-watchdog.events", "mcp-watchdog (события)",

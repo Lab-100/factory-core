@@ -47,6 +47,7 @@
 | 5.4 | Единый журнал `ledger.jsonl` | ✅ | `factory/ledger.py`; события `metrics`/`quota`/`change`/`catalog` |
 | 5.5 | Пульт оператора (CLI + дашборд) | ✅ | `factory/ui/cli.py`, `factory/ui/web.py`; `factory doctor` показывает и адаптеры, и интеграции |
 | **5.6** | Каталог артефактов `catalog/` | ✅ | запись — `factory/dispatch.py` (`_write_catalog`); просмотр — `factory/catalog.py`, `factory catalog`, `/api/catalog`, раздел дашборда |
+| **5.7** | Сессии — история запросов и ответов | ✅ | `factory/sessions.py` (`invr.session/1`), `factory sessions` (`list`/`new`/`show`/`add`/`rm`), привязка задачи `factory run --session <id>`, запись итога из `factory/jobs.py` |
 
 ## Публикация (Windows + GitHub)
 
@@ -96,6 +97,7 @@ infra-graph, Ollama) — реальные: при отсутствии репо�
 | Диспетчер, домены, квоты, каталог, ledger, интеграции | изолированные тесты `tests/` (внешние вызовы — на подставных адаптерах) |
 | Реальный запуск шима INVR (подпроцесс) | `tests/test_adapters.py::InvrShimExecutionTest` (шим создаётся во временном каталоге) |
 | Очередь задач и полуавтомат | `tests/test_jobs.py` (фоновый прогон, `awaiting-approval` → `approve`, авто-восстановление) |
+| Сессии (создание/просмотр/добавление/привязка задачи) | `tests/test_sessions.py` |
 | Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение, арсенал, журналы, действие супервизора) |
 | Арсенал, узлы, супервизор, журналы | `tests/test_arsenal.py`, `tests/test_nodes.py`, `tests/test_supervisor.py`, `tests/test_logs.py` |
 | Реактивная смена региона при гео-блоке, критерии приёмки, vision-изображения (§4.5) | `tests/test_dispatch.py` (`test_region_retry_on_geoblock`, `test_acceptance_recorded`, `test_vision_step_carries_images`), `tests/test_adapters.py::LocalLlmImagesTest` |

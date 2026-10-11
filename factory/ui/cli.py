@@ -679,6 +679,39 @@ def _cmd_project(args) -> int:
     return 0
 
 
+def _cmd_providers(args) -> int:
+    """Внешние ИИ-провайдеры: список, проверка, включение и выключение."""
+    from .. import providers
+
+    _root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    action = getattr(args, "providers_action", None) or "list"
+    name = getattr(args, "name", "") or ""
+
+    if action in ("enable", "disable"):
+        if not name:
+            print(tr("providers.need_name"))
+            return 1
+        if not providers.set_enabled(settings, name, action == "enable"):
+            print(tr("providers.unknown", name=name))
+            return 1
+        key = "providers.enabled" if action == "enable" else "providers.disabled"
+        print(tr(key, name=providers.title(name)))
+        return 0
+
+    items = providers.discover(settings)
+    for item in items:
+        state = tr("providers.state_on") if item["enabled"] else tr("providers.state_off")
+        mark = "[ok]" if item["available"] else "[--]"
+        line = f"{mark} {item['name']:<12} {item['title']:<14} {state}"
+        if item["command"]:
+            line += f" · {item['command']}"
+        print(line)
+    if action != "check":
+        print(tr("providers.hint"))
+    return 0
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -730,6 +763,12 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_project.add_argument("--path", default="", help=t(lang, "arg.project.path"))
     p_project.add_argument("--force", action="store_true", help=t(lang, "arg.project.force"))
     p_project.set_defaults(func=_cmd_project)
+
+    p_providers = sub.add_parser("providers", help=t(lang, "cmd.providers"))
+    p_providers.add_argument("providers_action", nargs="?", default="list",
+                             choices=["list", "check", "enable", "disable"])
+    p_providers.add_argument("name", nargs="?", default="", help=t(lang, "arg.providers.name"))
+    p_providers.set_defaults(func=_cmd_providers)
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
     p_ui.add_argument("--mode", choices=["cli", "web", "tray", "desktop"], default="cli")

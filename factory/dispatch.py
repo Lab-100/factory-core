@@ -84,12 +84,17 @@ class Dispatcher:
             steps.append(Step(len(steps), "region-switch", "region", "switch", params))
 
         for cap in capabilities:
-            route = CAPABILITY_ROUTE.get(cap)
+            route = self._route_for(cap)
             if not route:
                 continue
             adapter, action = route
             params: dict = {"query": task.goal, "prompt": task.goal}
             if adapter == "lab100":
+                provider = str(task.inputs.get("provider")
+                               or task.constraints.get("provider") or "")
+                if provider:
+                    params["provider"] = provider
+            if adapter == "external_agent":
                 provider = str(task.inputs.get("provider")
                                or task.constraints.get("provider") or "")
                 if provider:
@@ -117,6 +122,32 @@ class Dispatcher:
                 params["timeout_s"] = timeout
             steps.append(Step(len(steps), f"tool:{name}", "invr", "run", params))
         return matched, steps
+
+    def _route_for(self, capability: str) -> tuple[str, str] | None:
+        """Маршрут компетенции: настройка `routing.<cap>` или встроенная таблица.
+
+        Настройка перекрывает таблицу: ``routing.answer = "external_agent"`` или
+        ``"external_agent:chat"``. При ``providers.auto_route = true`` и наличии
+        включённых внешних провайдеров компетенции code/answer/deep-research
+        уходят во внешний агент (если маршрут явно не задан).
+        """
+        override = str(self.settings.get(f"routing.{capability}", "") or "").strip()
+        if override:
+            if ":" in override:
+                adapter, action = override.split(":", 1)
+            else:
+                builtin = CAPABILITY_ROUTE.get(capability)
+                adapter, action = override, (builtin[1] if builtin else "run")
+            adapter, action = adapter.strip(), action.strip()
+            if adapter:
+                return (adapter, action or "run")
+        route = CAPABILITY_ROUTE.get(capability)
+        if (route and capability in ("code", "answer", "deep-research")
+                and self.settings.get("providers.auto_route", False)):
+            from . import providers
+            if providers.enabled(self.settings):
+                return ("external_agent", route[1])
+        return route
 
     @staticmethod
     def _tool_entry(entry) -> tuple[str, list, float | None] | None:

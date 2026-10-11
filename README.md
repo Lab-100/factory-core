@@ -154,6 +154,12 @@ python -m factory run examples/task.tools.json --dry-run
   («Lab100 → инструмент → каталог»): ищет рядом `factory.exe`, иначе запускает
   `python -m factory`; `factory.ps1 run <task.json>`, `factory.ps1 catalog`,
   `factory.ps1 doctor`.
+- Внешние ИИ-провайдеры: `factory providers list` показывает установленные среды
+  (opencode, claude-code, cursor, windsurf, void, zen, workai, multitool) и их
+  переключатель. `factory providers enable <имя>` включает провайдера; направить
+  на него компетенции можно через `routing.<компетенция> = "external_agent"`
+  в `config/settings.toml` или включить `providers.auto_route = true`. В дашборде
+  есть раздел «Провайдеры».
 
 ## Инвентаризация, квоты, супервизия и единый журнал
 

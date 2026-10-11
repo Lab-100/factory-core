@@ -130,6 +130,7 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_jobs}}</h2><div id="jobs"></div></section>
  <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
  <section><h2>{{t_project}}</h2><div id="project"></div></section>
+ <section><h2>{{t_providers}}</h2><div id="providers"></div></section>
  <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
@@ -155,6 +156,7 @@ const T={
  arsenalSummary:'{{t_web_arsenal_summary}}',logsAll:'{{t_web_logs_all}}',logsPh:'{{t_web_logs_ph}}',
  refresh:'{{t_web_refresh}}',
  projNone:'{{t_proj_none}}',
+ provEnabled:'{{t_th_enabled}}',provAvail:'{{t_avail}}',provOn:'{{t_turn_on}}',provOff:'{{t_turn_off}}',provHint:'{{t_prov_hint}}',
  thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
  sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}'
@@ -295,6 +297,24 @@ async function loadProject(){
   ? '<p><code>'+esc(p.path)+'</code></p><pre>'+esc(JSON.stringify(p.data,null,2))+'</pre>'
   : '<p>'+esc(T.projNone)+'</p>';
 }
+async function loadProviders(){
+ const r=await j('/api/providers');
+ const items=r.providers||[];
+ const box=document.getElementById('providers');
+ if(!items.length){box.innerHTML='<p>'+T.noData+'</p>';return}
+ box.innerHTML='<table><tr><th>'+T.thName+'</th><th>'+T.thTitle+'</th><th>'+T.provAvail+'</th><th>'+T.provEnabled+'</th><th></th></tr>'+
+  items.map(p=>{
+   const cmd=p.command?'<br><small><code>'+esc(p.command)+'</code></small>':'';
+   const btn=p.enabled
+    ?'<button class="warn" onclick="toggleProvider(\''+esc(p.name)+'\',false)">'+T.provOff+'</button>'
+    :'<button onclick="toggleProvider(\''+esc(p.name)+'\',true)">'+T.provOn+'</button>';
+   return '<tr><td><code>'+esc(p.name)+'</code></td><td>'+esc(p.title)+cmd+'</td><td class="'+(p.available?'on':'off')+'">'+(p.available?T.on:T.off)+'</td><td class="'+(p.enabled?'on':'off')+'">'+(p.enabled?T.on:T.off)+'</td><td>'+btn+'</td></tr>';
+  }).join('')+'</table><p><small>'+esc(T.provHint)+'</small></p>';
+}
+async function toggleProvider(name,enabled){
+ await fetch('/api/providers/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,enabled})});
+ loadProviders();
+}
 async function loadQuotas(){
  const q=await j('/api/quotas');
  const box=document.getElementById('quotas');
@@ -367,7 +387,7 @@ async function loadLogs(){
   '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
   '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
 }
-load();loadJobs();loadSessions();loadProject();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
 </script></body></html>"""
 
@@ -444,6 +464,12 @@ def _page(lang: str) -> str:
         "t_role_user": tr("web.role_user"),
         "t_role_assistant": tr("web.role_assistant"),
         "t_role_system": tr("web.role_system"),
+        "t_providers": tr("web.providers"),
+        "t_th_enabled": tr("web.th_enabled"),
+        "t_avail": tr("web.avail"),
+        "t_turn_on": tr("web.turn_on"),
+        "t_turn_off": tr("web.turn_off"),
+        "t_prov_hint": tr("web.prov_hint"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -507,6 +533,12 @@ def _handler_class():
                 return self._send({
                     "path": str(project_path) if project_path else None,
                     "data": projects.load_project(project_path) if project_path else {},
+                })
+            if path == "/api/providers":
+                from .. import providers
+                return self._send({
+                    "providers": providers.discover(settings),
+                    "auto_route": bool(settings.get("providers.auto_route", False)),
                 })
             if path == "/api/domains":
                 return self._send({"domains": [d.to_dict() | {"name": d.name} for d in registry.all()]})
@@ -626,6 +658,12 @@ def _handler_class():
                 return self._send({"ok": False, "error": "not found"}, status=404)
             if path == "/api/sessions/delete":
                 ok = SessionStore(repo_root()).delete(str(data.get("id") or ""))
+                return self._send({"ok": ok}, status=200 if ok else 404)
+            if path == "/api/providers/toggle":
+                from .. import providers
+                name = str(data.get("name") or "")
+                ok = providers.set_enabled(settings, name,
+                                           bool(data.get("enabled", True)))
                 return self._send({"ok": ok}, status=200 if ok else 404)
             if path == "/api/supervise/action":
                 from ..supervisor import Supervisor

@@ -141,3 +141,21 @@ path = "state/arsenal.json"
 #
 # Исключено (проект без Docker): docker, gordon, model-runner — показаны
 # как «unloaded», а не как сбой.
+
+[providers]
+# Переключатель внешних ИИ: встроенные бесплатные ассистенты сред разработки.
+# Список и состояние: `factory providers list`; включить: `factory providers
+# enable opencode`. Каждый провайдер хранится отдельной секцией:
+#   [providers.opencode]
+#   enabled = true          # включён переключателем
+#   command = ""            # необязательно: переопределить команду запуска
+# Доступные имена: opencode, claude-code, cursor, windsurf, void, zen, workai,
+# multitool. Провайдеры не опрашиваются без нужды — только поимённое
+# переключение владельцем.
+auto_route = false          # true — направлять code/answer/deep-research во внешний агент
+
+[routing]
+# Направление компетенций на адаптер (перекрывает встроенную маршрутизацию).
+# Формат: <адаптер> или <адаптер>:<действие>. Пример:
+#   answer = "external_agent"
+#   code   = "external_agent:chat"

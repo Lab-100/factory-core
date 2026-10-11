@@ -314,6 +314,13 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn("path", data)
         self.assertIn("data", data)
 
+    def test_api_providers(self) -> None:
+        code, data = self._get("/api/providers")
+        self.assertEqual(code, 200)
+        names = [item["name"] for item in data["providers"]]
+        self.assertIn("opencode", names)
+        self.assertIn("auto_route", data)
+
     # --- запуск задач и подтверждение ---
     def test_run_auto_job_and_poll(self) -> None:
         code, data = self._post("/api/run", {

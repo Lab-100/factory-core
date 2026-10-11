@@ -51,6 +51,7 @@
 | **5.8** | Вложения и экспорт | ✅ | вложения — `factory/attachments.py` (`state/uploads/<scope>/`), загрузка `POST /api/upload` (multipart), поле `inputs.attachments`; экспорт — `factory/export.py`, `factory export <job\|session> <id>` (`md`/`json`/`zip`), `/api/export`; кнопки в дашборде |
 | **5.9** | Проектные настройки | ✅ | `factory/projects.py` (поиск `.factory/settings.toml`/`factory.toml` вверх, глубокое слияние с глобальными), `factory project status|init|show`, `/api/project`, раздел дашборда |
 | **5.10** | Оконное приложение и установщик | ✅ | `factory/ui/desktop.py` (pywebview, опция `[desktop]`, `factory ui --mode desktop`); установщик Inno Setup `scripts/factory.iss` + сборка `scripts/make_installer.ps1` (ярлыки, PATH, автозапуск, «Программы и компоненты», штатное удаление) |
+| **5.11** | Внешние ИИ-провайдеры (переключатель) | ✅ | `factory/providers.py` (каталог opencode/claude-code/cursor/windsurf/void/zen/workai/multitool, поимённое включение), адаптер `external_agent`, `factory providers list|check|enable|disable`, `/api/providers`, секция дашборда, `routing.<компетенция>` и `providers.auto_route` |
 
 ## Публикация (Windows + GitHub)
 
@@ -104,6 +105,7 @@ infra-graph, Ollama) — реальные: при отсутствии репо�
 | Вложения (санитизация, уникализация, лимит, защита путей) и экспорт (md/json/zip) | `tests/test_attachments.py`, `tests/test_export.py` |
 | Проектные настройки (поиск вверх, глубокое слияние, init) | `tests/test_projects.py` |
 | Оконный режим (откат без pywebview, разбор порта) | `tests/test_desktop.py` |
+| Внешние ИИ-провайдеры (обнаружение, переключатель, маршрут) | `tests/test_providers.py` |
 | Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение, арсенал, журналы, действие супервизора) |
 | Арсенал, узлы, супервизор, журналы | `tests/test_arsenal.py`, `tests/test_nodes.py`, `tests/test_supervisor.py`, `tests/test_logs.py` |
 | Реактивная смена региона при гео-блоке, критерии приёмки, vision-изображения (§4.5) | `tests/test_dispatch.py` (`test_region_retry_on_geoblock`, `test_acceptance_recorded`, `test_vision_step_carries_images`), `tests/test_adapters.py::LocalLlmImagesTest` |

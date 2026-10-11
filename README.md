@@ -149,7 +149,8 @@ python -m factory run examples/task.tools.json --dry-run
   запись в «Программы и компоненты» и штатное удаление (каталог в PATH
   вычищается деинсталлятором). Нужен установленный Inno Setup
   (`winget install --id JRSoftware.InnoSetup`); скрипт сам найдёт `ISCC.exe`
-  и подскажет, если его нет.
+  и подскажет, если его нет. Готовый `factory-setup.exe` публикуется вторым
+  ассетом в GitHub Release.
 - Обёртка-шим (§8.3): `scripts/factory.ps1` — переносимая точка входа
   («Lab100 → инструмент → каталог»): ищет рядом `factory.exe`, иначе запускает
   `python -m factory`; `factory.ps1 run <task.json>`, `factory.ps1 catalog`,

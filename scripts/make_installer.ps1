@@ -1,4 +1,4 @@
-# Сборка установщика «Фабрика Lab-100» (Inno Setup 6).
+﻿# Сборка установщика «Фабрика Lab-100» (Inno Setup 6).
 #
 # 1) собирает dist\factory.exe (если его ещё нет) — scripts\build_exe.ps1;
 # 2) собирает установщик dist\factory-setup.exe по scripts\factory.iss.

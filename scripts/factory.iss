@@ -1,4 +1,4 @@
-; Установщик «Фабрика Lab-100» для Windows (Inno Setup 6).
+﻿; Установщик «Фабрика Lab-100» для Windows (Inno Setup 6).
 ;
 ; Собирается скриптом scripts\make_installer.ps1 (передаёт /DAppVersion=<версия>).
 ; Ставится в профиль пользователя (%LOCALAPPDATA%\Programs\FactoryLab100), без
@@ -83,22 +83,26 @@ end;
 
 procedure RemoveFromPath();
 var
-  OrigPath, Rebuilt, Target: string;
-  Lines: TArrayOfString;
-  I: Integer;
+  OrigPath, Rebuilt, Item, Target: string;
+  P: Integer;
 begin
   if not RegQueryStringValue(HKCU, 'Environment', 'Path', OrigPath) then
     exit;
   Target := ExpandConstant('{app}');
-  Lines := StringSplit(OrigPath, ';');
+  OrigPath := OrigPath + ';';
   Rebuilt := '';
-  for I := 0 to GetArrayLength(Lines) - 1 do
+  while True do
   begin
-    if (Lines[I] <> '') and (CompareText(Lines[I], Target) <> 0) then
+    P := Pos(';', OrigPath);
+    if P = 0 then
+      break;
+    Item := Copy(OrigPath, 1, P - 1);
+    Delete(OrigPath, 1, P);
+    if (Item <> '') and (CompareText(Item, Target) <> 0) then
     begin
       if Rebuilt <> '' then
         Rebuilt := Rebuilt + ';';
-      Rebuilt := Rebuilt + Lines[I];
+      Rebuilt := Rebuilt + Item;
     end;
   end;
   RegWriteExpandStringValue(HKCU, 'Environment', 'Path', Rebuilt);

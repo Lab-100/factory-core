@@ -1,4 +1,4 @@
-# Удаление factory-core (пользовательская установка).
+﻿# Удаление factory-core (пользовательская установка).
 $ErrorActionPreference = "Continue"
 
 $install = Join-Path $env:LOCALAPPDATA "Programs\FactoryLab100"

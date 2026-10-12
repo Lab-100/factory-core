@@ -142,7 +142,12 @@ python -m factory run examples/task.tools.json --dry-run
   или `gh auth token`.
 - Windows-установка: распакуйте `factory-core-win.zip` из релиза и запустите
   `install.ps1` — поставит в `%LOCALAPPDATA%\Programs\FactoryLab100`, добавит
-  в PATH и меню «Пуск».
+  в PATH и меню «Пуск». Дистрибутив самодостаточен: внутри `factory.exe`
+  (Python на целевой машине не нужен), конфиги/схемы/примеры/документация,
+  все инструменты фабрики — каталог `scripts/` и его копия `tools.zip`
+  (установщик распаковывает её сам, если каталога рядом нет), а также готовый
+  `factory-setup.exe`. Устанавливается на любую Windows 10/11 без прав
+  администратора (x64).
 - Установщик как Windows-приложения: `scripts/make_installer.ps1` собирает
   `dist/factory-setup.exe` (Inno Setup 6) — установка без прав администратора,
   ярлыки «окно»/«дашборд», добавление в PATH, необязательный автозапуск,

@@ -129,8 +129,53 @@ def build_exe(root: Path) -> None:
         raise RuntimeError("не создан dist/factory.exe")
 
 
+def find_iscc() -> Path | None:
+    """Поиск компилятора Inno Setup (ISCC.exe); None — если не установлен."""
+    candidates: list[Path] = []
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
+        if base:
+            candidates.append(Path(base) / "Inno Setup 6" / "ISCC.exe")
+    found = shutil.which("ISCC.exe") or shutil.which("iscc")
+    if found:
+        candidates.append(Path(found))
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return candidate
+    return None
+
+
+def make_installer(root: Path, log=None, tr=None) -> Path | None:
+    """Сборка dist/factory-setup.exe (Inno Setup). None — если ISCC не найден."""
+    def message(key: str, **kwargs) -> None:
+        if log:
+            log((tr(key, **kwargs) if tr else key))
+
+    iscc = find_iscc()
+    if iscc is None:
+        message("rel.installer_skip")
+        return None
+    setup = root / "dist" / "factory-setup.exe"
+    setup.unlink(missing_ok=True)
+    proc = subprocess.run(
+        [str(iscc), f"/DAppVersion={version()}", str(root / "scripts" / "factory.iss")],
+        cwd=str(root), capture_output=True, text=True, timeout=900)
+    if proc.returncode != 0 or not setup.exists():
+        raise RuntimeError(f"не удалось собрать установщик: {(proc.stdout or '')[-800:]}")
+    if log:
+        log(tr("rel.installer", path=str(setup), size=setup.stat().st_size // 1024) if tr
+            else str(setup))
+    return setup
+
+
 def make_zip(root: Path) -> Path:
-    """Упаковка dist/factory-core-win.zip (exe + конфиги + install/uninstall)."""
+    """Упаковка dist/factory-core-win.zip.
+
+    В архив входит всё, что нужно для установки на любой машине Windows:
+    factory.exe, конфиги/схемы/примеры/документация, скрипты установки и
+    все инструменты фабрики (каталог scripts/ и его копия tools.zip —
+    распаковывается при установке), а также готовый установщик
+    factory-setup.exe, если он собран.
+    """
     exe = root / "dist" / "factory.exe"
     if not exe.exists():
         raise RuntimeError("сначала соберите exe (factory release соберёт сам)")
@@ -138,18 +183,28 @@ def make_zip(root: Path) -> Path:
     shutil.rmtree(package, ignore_errors=True)
     package.mkdir(parents=True, exist_ok=True)
     shutil.copy2(exe, package / "factory.exe")
-    shim = root / "scripts" / "factory.ps1"
-    if shim.exists():
-        shutil.copy2(shim, package / "factory.ps1")
     for name in ("config", "schemas", "examples", "docs"):
         shutil.copytree(root / name, package / name, dirs_exist_ok=True)
     for name in ("README.md", "LICENSE", "project.json"):
         if (root / name).exists():
             shutil.copy2(root / name, package / name)
-    for name in ("install.ps1", "uninstall.ps1"):
-        src = root / "scripts" / name
+    # Все инструменты фабрики: каталог scripts/ целиком, и он же — одним архивом
+    # (install.ps1 распакует tools.zip, если каталога scripts/ рядом не окажется).
+    scripts = root / "scripts"
+    if scripts.exists():
+        shutil.copytree(scripts, package / "scripts", dirs_exist_ok=True)
+        tools = package / "tools.zip"
+        tools.unlink(missing_ok=True)
+        shutil.make_archive(str(tools.with_suffix("")), "zip", root_dir=str(scripts))
+    # Обёртки для запуска прямо из распакованного архива
+    for name in ("factory.ps1", "install.ps1", "uninstall.ps1"):
+        src = scripts / name
         if src.exists():
             shutil.copy2(src, package / name)
+    # Готовый установщик как Windows-приложения
+    setup = root / "dist" / "factory-setup.exe"
+    if setup.exists():
+        shutil.copy2(setup, package / "factory-setup.exe")
     zip_path = root / "dist" / "factory-core-win.zip"
     zip_path.unlink(missing_ok=True)
     shutil.make_archive(str(zip_path.with_suffix("")), "zip", root_dir=package)
@@ -295,6 +350,8 @@ def release(token: str, tag: str | None = None, draft: bool = False, skip_build:
     if not (root / "dist" / "factory.exe").exists():
         log(tr("rel.step1"))
         build_exe(root)
+    if not skip_build:
+        make_installer(root, log, tr)
     make_zip(root)
     zip_path = root / "dist" / "factory-core-win.zip"
     log(tr("rel.archive", path=zip_path, size=zip_path.stat().st_size // 1024))

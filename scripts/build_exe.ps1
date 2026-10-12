@@ -1,4 +1,4 @@
-# Сборка Windows-версии factory-core в один exe (PyInstaller).
+﻿# Сборка Windows-версии factory-core в один exe (PyInstaller).
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root

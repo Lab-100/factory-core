@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,14 +41,36 @@ class Step:
     adapter: str
     action: str
     params: dict = field(default_factory=dict)
+    depends_on: list[str] = field(default_factory=list)
+    when: str | None = None
+    node_id: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "id": self.id,
             "capability": self.capability,
             "adapter": self.adapter,
             "action": self.action,
         }
+        if self.node_id:
+            data["node_id"] = self.node_id
+        if self.depends_on:
+            data["depends_on"] = list(self.depends_on)
+        if self.when:
+            data["when"] = self.when
+        return data
+
+
+@dataclass
+class _Outcome:
+    """Итог узла DAG: контекст для условий `when` вида `s1.ok` (`_R['s1'].ok`)."""
+    ok: bool
+    status: str
+    error: str = ""
+
+    @property
+    def skipped(self) -> bool:
+        return self.status == "skipped"
 
 
 class Dispatcher:
@@ -60,6 +84,10 @@ class Dispatcher:
 
     def plan(self, task):
         matched = self.domains.resolve(task)
+        # Явный граф задачи (constraints.dag = [...]) полностью описывает шаги
+        spec = self._dag_spec(task)
+        if isinstance(spec, list):
+            return matched, self._dag_from_spec(task, matched, spec)
         capabilities = list(task.capabilities)
         if not capabilities:
             for domain in matched:
@@ -121,7 +149,160 @@ class Dispatcher:
             if timeout:
                 params["timeout_s"] = timeout
             steps.append(Step(len(steps), f"tool:{name}", "invr", "run", params))
+        # DAG-режим без явного графа: обычный план, сшитый в цепочку зависимостей
+        if self._dag_requested(task):
+            steps = self._chain_dag(steps)
         return matched, steps
+
+    # --- DAG-режим (§4.5): зависимости, условия, топосортировка, параллелизм ---
+    @staticmethod
+    def _dag_spec(task):
+        """Поле `constraints.dag`: True/список шагов — включает граф. Иначе None."""
+        return task.constraints.get("dag")
+
+    def _dag_requested(self, task) -> bool:
+        """DAG включён полем задачи либо настройкой `dispatch.mode = "dag"`."""
+        if bool(self._dag_spec(task)):
+            return True
+        return str(self.settings.get("dispatch.mode", "") or "").strip().lower() == "dag"
+
+    @staticmethod
+    def _chain_dag(steps: list[Step]) -> list[Step]:
+        """Сшить линейный план в цепочку: шаг n зависит от шага n-1."""
+        prev: str | None = None
+        for step in steps:
+            step.node_id = step.node_id or f"n{step.id}"
+            if prev is not None:
+                step.depends_on = [prev]
+            prev = step.node_id
+        return steps
+
+    def _dag_from_spec(self, task, matched, spec: list) -> list[Step]:
+        """Построить шаги из явного описания графа задачи.
+
+        Каждый элемент: ``{id, capability|tool, params?, depends_on?, when?}``.
+        Ветвления и условия задаются ссылками ``depends_on``/``when`` на id шагов.
+        """
+        steps: list[Step] = []
+        index: dict[str, Step] = {}
+        for item in spec:
+            if not isinstance(item, dict):
+                raise ValueError("DAG: шаг должен быть объектом {id, capability|tool, ...}")
+            node_id = str(item.get("id") or "").strip()
+            if not node_id:
+                raise ValueError("DAG: у шага не задан id")
+            if node_id in index:
+                raise ValueError(f"DAG: повторяющийся id шага: {node_id}")
+            tool = str(item.get("tool") or "").strip()
+            if tool:
+                capability = f"tool:{tool}"
+                adapter, action = "invr", "run"
+                params: dict = {"tool": tool}
+                args = item.get("args")
+                if args:
+                    params["args"] = list(args) if isinstance(args, list) else [args]
+                timeout = item.get("timeout_s") or item.get("timeout")
+                if timeout:
+                    params["timeout_s"] = timeout
+            else:
+                capability = str(item.get("capability") or "").strip()
+                route = self._route_for(capability) if capability else None
+                if not route:
+                    raise ValueError(f"DAG: неизвестная компетенция: {capability!r}")
+                adapter, action = route
+                params = {"query": task.goal, "prompt": task.goal}
+            extra = item.get("params")
+            if isinstance(extra, dict):
+                params.update({key: value for key, value in extra.items() if value is not None})
+            raw_deps = item.get("depends_on") or []
+            if isinstance(raw_deps, str):
+                raw_deps = [raw_deps]
+            deps = [str(dep).strip() for dep in raw_deps if str(dep).strip()]
+            when = str(item.get("when") or "").strip() or None
+            step = Step(len(steps), capability, adapter, action, params,
+                        depends_on=deps, when=when, node_id=node_id)
+            index[node_id] = step
+            steps.append(step)
+        for step in steps:
+            for dep in step.depends_on:
+                if dep not in index:
+                    raise ValueError(f"DAG: шаг {step.node_id} ссылается на неизвестный шаг {dep}")
+        self._dag_levels(steps)   # ранее обнаружит цикл, чем начнётся исполнение
+        return steps
+
+    @staticmethod
+    def _dag_levels(steps: list[Step]) -> list[list[Step]]:
+        """Топологическая сортировка (Kahn) на уровни независимых шагов.
+
+        Уровни — это шаги, которые можно запускать параллельно; все зависимости
+        уровня уже выполнены. В порядок входят и явные ``depends_on``, и ссылки
+        из условий ``when``: условие читает итог узла, значит узел должен идти
+        позже. Цикл зависимостей — ошибка конфигурации задачи.
+        """
+        index: dict[str, int] = {}
+        for position, step in enumerate(steps):
+            key = step.node_id or f"n{step.id}"
+            if key in index:
+                raise ValueError(f"DAG: повторяющийся узел графа: {key}")
+            index[key] = position
+        count = len(steps)
+        deps_of: list[list[str]] = []
+        for step in steps:
+            deps = list(step.depends_on)
+            for ref in Dispatcher._when_refs(step.when):
+                if ref in index and ref not in deps:
+                    deps.append(ref)
+            deps_of.append(deps)
+        children: list[list[int]] = [[] for _ in range(count)]
+        indegree = [0] * count
+        for position, deps in enumerate(deps_of):
+            indegree[position] = len(deps)
+            for dep in deps:
+                if dep not in index:
+                    raise ValueError(f"DAG: неизвестная зависимость: {dep}")
+                children[index[dep]].append(position)
+        queue = deque(position for position in range(count) if indegree[position] == 0)
+        levels: list[list[Step]] = []
+        seen = 0
+        while queue:
+            level: list[Step] = []
+            for _ in range(len(queue)):
+                position = queue.popleft()
+                level.append(steps[position])
+                seen += 1
+                for child in children[position]:
+                    indegree[child] -= 1
+                    if indegree[child] == 0:
+                        queue.append(child)
+            levels.append(level)
+        if seen != count:
+            raise ValueError("DAG: обнаружен цикл зависимостей (топологическая сортировка невозможна)")
+        return levels
+
+    _WHEN_REF = re.compile(r"\b([A-Za-z_][A-Za-z0-9_.-]*)\.(ok|status|skipped|error)\b")
+
+    @staticmethod
+    def _when_refs(when: str | None) -> list[str]:
+        """Имена узлов, на которые ссылается условие ``when`` (``s1.ok`` → ``s1``)."""
+        if not when:
+            return []
+        return [name for name, _ in Dispatcher._WHEN_REF.findall(when)]
+
+    @classmethod
+    def _eval_when(cls, expr: str | None, outcomes: dict[str, "_Outcome"]) -> bool:
+        """Проверить условие `when` вроде ``s1.ok and not s2.skipped``.
+
+        Допустимы ссылки ``id.ok|status|skipped|error``, операторы and/or/not и
+        скобки. Ошибка разбора или неизвестный id — условие считается ложным.
+        """
+        if not expr:
+            return True
+        safe = cls._WHEN_REF.sub(
+            lambda m: f"_R[{m.group(1)!r}].{m.group(2)}", expr)
+        try:
+            return bool(eval(safe, {"__builtins__": {}}, {"_R": outcomes}))  # noqa: S307
+        except Exception:  # noqa: BLE001 - условие не должно ронять задачу
+            return False
 
     def _route_for(self, capability: str) -> tuple[str, str] | None:
         """Маршрут компетенции: настройка `routing.<cap>` или встроенная таблица.
@@ -207,68 +388,21 @@ class Dispatcher:
             "domains": [d.name for d in matched],
         })
 
-        results: list[StepResult] = []
-        stopped = False
-        for step in steps:
-            need = automation == "semi" and (
-                not checkpoints
-                or step.capability in checkpoints
-                or step.action in checkpoints
-                or step.adapter in checkpoints
-            )
-            if need and not stopped:
-                if approve is None:
-                    res = StepResult(False, "awaiting-approval", step.adapter, step.action,
-                                     {"step": step.id})
-                    results.append(res)
-                    self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
-                                        "status": "awaiting-approval"})
-                    stopped = True
-                    continue
-                if not approve(step):
-                    res = StepResult(False, "skipped", step.adapter, step.action,
-                                     {"step": step.id})
-                    results.append(res)
-                    self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
-                                        "status": "skipped"})
-                    continue
-
-            adapter = self.adapters.get(step.adapter)
-            if adapter is None:
-                res = StepResult(False, "unavailable", step.adapter, step.action,
-                                 error="адаптер не найден")
-            elif dry_run:
-                # в dry-run не требуем наличия репозиториев/инструментов:
-                # показываем весь план как «simulated», а не как недоступность
-                res = adapter.run(step.action, step.params, dry_run=True)
-            elif not adapter.available():
-                res = StepResult(False, "unavailable", step.adapter, step.action,
-                                 error="адаптер недоступен")
-            else:
-                res = adapter.run(step.action, step.params, dry_run=False)
-            # реактивная смена региона при гео-блокировке (§4.5) — одна повторная попытка
-            if (not dry_run and not res.ok and step.adapter == "lab100"
-                    and allow_region_switch and not step.params.get("region_retry")
-                    and self._looks_blocked(res)):
-                res = self._retry_after_region(task_id, step, adapter, default_region, res)
-            results.append(res)
-            self.ledger.append({
-                "kind": "step",
-                "task": task_id,
-                "step": step.id,
-                "capability": step.capability,
-                "adapter": step.adapter,
-                "action": step.action,
-                "status": res.status,
-                "ok": res.ok,
-                "error": res.error,
-            })
+        if any(step.depends_on for step in steps):
+            results, stopped = self._execute_dag(
+                task_id, steps, approve, automation, checkpoints, dry_run,
+                allow_region_switch, default_region)
+        else:
+            results, stopped = self._execute_linear(
+                task_id, steps, approve, automation, checkpoints, dry_run,
+                allow_region_switch, default_region)
 
         success = not stopped and all(r.ok or r.status == "skipped" for r in results)
         summary = {
             "task": task.to_dict(),
             "domains": [d.name for d in matched],
             "automation": automation,
+            "mode": "dag" if any(s.depends_on for s in steps) else "linear",
             "steps": [s.to_dict() for s in steps],
             "results": [r.to_dict() for r in results],
             "ok": success,
@@ -290,6 +424,173 @@ class Dispatcher:
                       catalog=catalog)
         return summary
 
+    # --- исполнение шагов: линейный контур и DAG-контур (§4.5) ---
+    def _needs_approval(self, step: Step, automation: str, checkpoints: list) -> bool:
+        """Нужно ли подтверждение оператора на шаге (режим semi)."""
+        return automation == "semi" and (
+            not checkpoints
+            or step.capability in checkpoints
+            or step.action in checkpoints
+            or step.adapter in checkpoints
+        )
+
+    def _run_step(self, task_id: str, step: Step, dry_run: bool, allow_region_switch: bool,
+                  default_region: str) -> tuple[StepResult, list]:
+        """Выполнить один шаг; события журнала возвращаются вызывающему.
+
+        Возврат ``(результат, события)``: события журнала не пишутся напрямую,
+        чтобы DAG-контур мог безопасно коммитить их из главного потока.
+        """
+        events: list = []
+        adapter = self.adapters.get(step.adapter)
+        if adapter is None:
+            res = StepResult(False, "unavailable", step.adapter, step.action,
+                             error="адаптер не найден")
+        elif dry_run:
+            # в dry-run не требуем наличия репозиториев/инструментов:
+            # показываем весь план как «simulated», а не как недоступность
+            res = adapter.run(step.action, step.params, dry_run=True)
+        elif not adapter.available():
+            res = StepResult(False, "unavailable", step.adapter, step.action,
+                             error="адаптер недоступен")
+        else:
+            res = adapter.run(step.action, step.params, dry_run=False)
+        # реактивная смена региона при гео-блокировке (§4.5) — одна повторная попытка
+        if (not dry_run and not res.ok and step.adapter == "lab100"
+                and allow_region_switch and not step.params.get("region_retry")
+                and self._looks_blocked(res)):
+            res = self._retry_after_region(task_id, step, adapter, default_region, res,
+                                           events=events)
+        return res, events
+
+    def _step_event(self, task_id: str, step: Step, res: StepResult) -> dict:
+        return {
+            "kind": "step",
+            "task": task_id,
+            "step": step.id,
+            "capability": step.capability,
+            "adapter": step.adapter,
+            "action": step.action,
+            "status": res.status,
+            "ok": res.ok,
+            "error": res.error,
+        }
+
+    def _execute_linear(self, task_id: str, steps, approve, automation: str,
+                        checkpoints: list, dry_run: bool, allow_region_switch: bool,
+                        default_region: str) -> tuple[list, bool]:
+        results: list[StepResult] = []
+        stopped = False
+        for step in steps:
+            need = self._needs_approval(step, automation, checkpoints)
+            if need and not stopped:
+                if approve is None:
+                    res = StepResult(False, "awaiting-approval", step.adapter, step.action,
+                                     {"step": step.id})
+                    results.append(res)
+                    self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
+                                        "status": "awaiting-approval"})
+                    stopped = True
+                    continue
+                if not approve(step):
+                    res = StepResult(False, "skipped", step.adapter, step.action,
+                                     {"step": step.id})
+                    results.append(res)
+                    self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
+                                        "status": "skipped"})
+                    continue
+            res, events = self._run_step(task_id, step, dry_run, allow_region_switch,
+                                         default_region)
+            for event in events:
+                self.ledger.append(event)
+            results.append(res)
+            self.ledger.append(self._step_event(task_id, step, res))
+        return results, stopped
+
+    @staticmethod
+    def _blocked_by_parent(step: Step, outcomes: dict[str, "_Outcome"]) -> bool:
+        """Пропускать ли шаг из-за неудачного предка (§4.5).
+
+        Пропуск каскадный: узел не запускается, если любой его предок из
+        ``depends_on`` завершился нештатно (``error``/``unavailable``/``skipped``).
+        Явное условие ``when`` перекрывает неявную блокировку — так описывают
+        обработчики ошибок вида ``when = "not s1.ok"``.
+        """
+        if step.when:
+            return False
+        return any(dep in outcomes and not outcomes[dep].ok for dep in step.depends_on)
+
+    def _execute_dag(self, task_id: str, steps, approve, automation: str,
+                     checkpoints: list, dry_run: bool, allow_region_switch: bool,
+                     default_region: str) -> tuple[list, bool]:
+        """Исполнить план уровнями: внутри уровня независимые ветви параллельны."""
+        levels = self._dag_levels(steps)
+        parallel = max(1, int(self.settings.get("dispatch.parallel", 2) or 1))
+        results: list[StepResult] = []
+        outcomes: dict[str, _Outcome] = {}
+        stopped = False
+
+        for level in levels:
+            to_run: list[Step] = []
+            for step in level:
+                key = step.node_id or f"n{step.id}"
+                if stopped:
+                    # как и в линейном контуре: после остановки шаги идут без подтверждения
+                    to_run.append(step)
+                    continue
+                if self._blocked_by_parent(step, outcomes):
+                    res = StepResult(False, "skipped", step.adapter, step.action,
+                                     {"step": step.id, "reason": "parent-failed"})
+                    self.ledger.append(self._step_event(task_id, step, res))
+                    results.append(res)
+                    outcomes[key] = _Outcome(False, "skipped", "parent-failed")
+                    continue
+                if step.when and not self._eval_when(step.when, outcomes):
+                    res = StepResult(False, "skipped", step.adapter, step.action,
+                                     {"step": step.id, "reason": "when-condition",
+                                      "condition": step.when})
+                    self.ledger.append(self._step_event(task_id, step, res))
+                    results.append(res)
+                    outcomes[key] = _Outcome(False, "skipped", "when-condition")
+                    continue
+                if self._needs_approval(step, automation, checkpoints):
+                    if approve is None:
+                        res = StepResult(False, "awaiting-approval", step.adapter,
+                                         step.action, {"step": step.id})
+                        self.ledger.append(self._step_event(task_id, step, res))
+                        results.append(res)
+                        outcomes[key] = _Outcome(False, "awaiting-approval")
+                        stopped = True
+                        continue
+                    if not approve(step):
+                        res = StepResult(False, "skipped", step.adapter, step.action,
+                                         {"step": step.id, "reason": "approval"})
+                        self.ledger.append(self._step_event(task_id, step, res))
+                        results.append(res)
+                        outcomes[key] = _Outcome(False, "skipped", "approval")
+                        continue
+                to_run.append(step)
+
+            if not to_run:
+                continue
+            if parallel > 1 and len(to_run) > 1:
+                with ThreadPoolExecutor(max_workers=min(parallel, len(to_run))) as pool:
+                    executed = list(pool.map(
+                        lambda item: self._run_step(task_id, item, dry_run,
+                                                    allow_region_switch, default_region),
+                        to_run))
+            else:
+                executed = [self._run_step(task_id, item, dry_run, allow_region_switch,
+                                           default_region) for item in to_run]
+            for step, (res, events) in zip(to_run, executed):
+                key = step.node_id or f"n{step.id}"
+                for event in events:
+                    self.ledger.append(event)
+                results.append(res)
+                self.ledger.append(self._step_event(task_id, step, res))
+                outcomes[key] = _Outcome(res.ok, res.status, res.error or "")
+        return results, stopped
+
     # --- реактивная смена региона (§4.5) ---
     _BLOCK_MARKERS = (
         "403", "forbidden", "location is not supported",
@@ -307,17 +608,22 @@ class Dispatcher:
         return any(marker in text for marker in cls._BLOCK_MARKERS)
 
     def _retry_after_region(self, task_id: str, step: Step, adapter, region: str,
-                            res: StepResult) -> StepResult:
-        """Сменить регион и повторить шаг один раз (реакция на гео-блок, §4.5)."""
+                            res: StepResult, events: list | None = None) -> StepResult:
+        """Сменить регион и повторить шаг один раз (реакция на гео-блок, §4.5).
+
+        События журнала уходят в ``events``, если он передан (DAG-контур собирает
+        их в рабочем потоке и коммитит из главного), иначе — напрямую в журнал.
+        """
+        sink = self.ledger if events is None else events
         region_adapter = self.adapters.get("region")
         if region_adapter is None or not region_adapter.available():
-            self.ledger.append({"kind": "region-retry", "task": task_id, "step": step.id,
-                                "region": region, "ok": False,
-                                "reason": "адаптер region недоступен"})
+            sink.append({"kind": "region-retry", "task": task_id, "step": step.id,
+                         "region": region, "ok": False,
+                         "reason": "адаптер region недоступен"})
             return res
         switch = region_adapter.run("switch", {"region": region})
-        self.ledger.append({"kind": "region-retry", "task": task_id, "step": step.id,
-                            "region": region, "ok": switch.ok, "switch": switch.status})
+        sink.append({"kind": "region-retry", "task": task_id, "step": step.id,
+                     "region": region, "ok": switch.ok, "switch": switch.status})
         if not switch.ok:
             return res
         params = dict(step.params)

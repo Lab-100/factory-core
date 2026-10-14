@@ -159,3 +159,9 @@ auto_route = false          # true — направлять code/answer/deep-res
 # Формат: <адаптер> или <адаптер>:<действие>. Пример:
 #   answer = "external_agent"
 #   code   = "external_agent:chat"
+
+[dispatch]
+# Режим диспетчера: linear | dag
+mode = "linear"
+# Максимальное число параллельных шагов внутри уровня DAG
+parallel = 2

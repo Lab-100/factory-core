@@ -53,6 +53,8 @@ Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs 
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\project.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Инструменты фабрики: скрипты установки/сборки, шим, схема установщика.
+Source: "..\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\Фабрика Lab-100 (окно)"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode desktop"; WorkingDir: "{app}"

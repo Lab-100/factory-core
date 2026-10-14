@@ -43,8 +43,11 @@ def serve(host: str | None = None, port: int | None = None) -> int:
         import webview  # type: ignore
     except Exception:  # noqa: BLE001
         print(tr("desktop.unavailable"))
-        print(tr("desktop.hint_web"))
-        return 1
+        if not bool(settings.get("ui.desktop_fallback_web", True)):
+            print(tr("desktop.hint_web"))
+            return 1
+        print(tr("desktop.fallback_web"))
+        return web.serve(host=host, port=port)
 
     server, actual = _start_server(host, port)
     threading.Thread(target=server.serve_forever, daemon=True).start()

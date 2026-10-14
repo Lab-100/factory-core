@@ -578,6 +578,47 @@ def _cmd_logs(args) -> int:
     return 0
 
 
+def _cmd_monitor(args) -> int:
+    """Микромонитор запуска: перехват вывода, ошибок и кода возврата."""
+    from ..monitor import LaunchMonitor
+
+    root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+
+    target = list(args.target or [])
+    if target and target[0] == "--":
+        target = target[1:]
+    command = target or None
+
+    timeout = args.timeout if args.timeout else float(settings.get("monitor.timeout_s", 0) or 0)
+    monitor = LaunchMonitor(
+        command, root=root,
+        log_path=args.log or settings.get("monitor.log") or None,
+        errors_path=args.errors or settings.get("monitor.errors_log") or None,
+    )
+    if not args.json:
+        print(tr("monitor.running", command=" ".join(monitor.command)))
+    report = monitor.run(timeout=timeout or None)
+
+    if args.json:
+        payload = {key: value for key, value in report.items() if key != "errors"}
+        payload["errors_count"] = len(report["errors"])
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if report["ok"] else 2
+
+    print(tr("monitor.finished", code=report["returncode"], duration=report["duration"]))
+    if args.all:
+        print(monitor.to_text())
+    if report["errors"]:
+        print(tr("monitor.errors_title", count=len(report["errors"])))
+        print(report["report"])
+    else:
+        print(tr("monitor.no_errors"))
+    print(tr("monitor.log_path", path=report["log"]))
+    print(tr("monitor.errors_path", path=report["errors_log"]))
+    return 0 if report["ok"] else 2
+
+
 def _cmd_sessions(args) -> int:
     """Сессии: история запросов и ответов по задачам."""
     root, settings, _, _ = build_context()
@@ -934,6 +975,17 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_heal.add_argument("--message", default=None, help=t(lang, "arg.heal.message"))
     p_heal.add_argument("--json", action="store_true", help=t(lang, "arg.heal.json"))
     p_heal.set_defaults(func=_cmd_heal)
+
+    p_monitor = sub.add_parser("monitor", help=t(lang, "cmd.monitor"))
+    p_monitor.add_argument("target", nargs=argparse.REMAINDER,
+                           help=t(lang, "arg.monitor.target"))
+    p_monitor.add_argument("--timeout", type=float, default=None,
+                           help=t(lang, "arg.monitor.timeout"))
+    p_monitor.add_argument("--log", default=None, help=t(lang, "arg.monitor.log"))
+    p_monitor.add_argument("--errors", default=None, help=t(lang, "arg.monitor.errors"))
+    p_monitor.add_argument("--all", action="store_true", help=t(lang, "arg.monitor.all"))
+    p_monitor.add_argument("--json", action="store_true", help=t(lang, "arg.monitor.json"))
+    p_monitor.set_defaults(func=_cmd_monitor)
 
     return parser
 

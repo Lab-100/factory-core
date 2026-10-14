@@ -21,6 +21,16 @@ healthcheck = true
 mode = "all"
 # Язык интерфейсов: ru | en | zh (по умолчанию ru)
 lang = "ru"
+# Если оконный режим (pywebview) недоступен — открывать дашборд в браузере
+desktop_fallback_web = true
+
+[monitor]
+# Микромонитор запуска: журнал всего вывода (пусто — state/monitor.log)
+log = ""
+# Журнал только ошибок (пусто — state/monitor-errors.log)
+errors_log = ""
+# Сколько секунд ждать запуск; 0 — без предела
+timeout_s = 0
 
 [ui.web]
 host = "127.0.0.1"

@@ -15,6 +15,26 @@
 | 5 | Супервизия | watchdog: наблюдение и авто-восстановление | ✅ | `factory/watchdog.py`, `factory watchdog` |
 | 6 | Арсенал | единый пульт над всеми элементами (инструменты/службы/агенты/окружение) + журналы + режимы | ✅ | `factory/arsenal.py`, `factory/nodes.py`, `factory/supervisor.py`, `factory/logs.py`, `factory arsenal`/`supervise`/`logs`, `/api/arsenal`/`/api/logs` |
 
+## Режимы диспетчера: линейный и DAG (§4.5)
+
+Диспетчер исполняет план в одном из двух режимов; выбор — по данным плана, не по коду.
+
+| Возможность | Как задаётся | Реализация |
+|---|---|---|
+| Линейный (по умолчанию) | план без зависимостей | `Dispatcher._execute_linear` |
+| Явный граф | `constraints.dag = [{id, capability|tool, depends_on?, when?}, …]` | `Dispatcher._dag_from_spec` |
+| Неявный граф | `constraints.dag = true` или `[dispatch] mode = "dag"` — линейный план сшивается в цепочку | `Dispatcher._chain_dag` |
+| Топосортировка и уровни независимых шагов | автоматически | `Dispatcher._dag_levels` (Kahn) |
+| Параллелизм внутри уровня | `[dispatch] parallel = N` (по умолчанию 2) | `_execute_dag` (`ThreadPoolExecutor`) |
+| Условия ветвления `when` (например `s2.ok`) | поле шага `when` | `Dispatcher._eval_when` |
+| Пропуск ветви при падении предка | автоматически (`reason: parent-failed`) | `_execute_dag` |
+| Цикл зависимостей / неизвестная ссылка | ошибка планирования `ValueError` | `_dag_from_spec` |
+
+Критерии приёмки задачи (`acceptance`) проверяются машиной там, где это возможно
+(`ok`, `no-error`, `step:<компетенция>`, `contains:`, `not-contains:`, `artifact:`);
+остальные помечаются «на оператора». Итог — поле `acceptance_checks` в результате
+и отметки в `report.md`.
+
 ## Арсенал и режимы (проект без Docker)
 
 | Возможность | Реализация |
@@ -108,7 +128,9 @@ infra-graph, Ollama) — реальные: при отсутствии репо�
 | Внешние ИИ-провайдеры (обнаружение, переключатель, маршрут) | `tests/test_providers.py` |
 | Веб-дашборд `/api/*` | `tests/test_web.py` (реальный `http.server` на свободном порту: страница, настройки, домены, журнал, квоты, инвентарь, каталог, doctor, очередь, подтверждение, арсенал, журналы, действие супервизора) |
 | Арсенал, узлы, супервизор, журналы | `tests/test_arsenal.py`, `tests/test_nodes.py`, `tests/test_supervisor.py`, `tests/test_logs.py` |
-| Реактивная смена региона при гео-блоке, критерии приёмки, vision-изображения (§4.5) | `tests/test_dispatch.py` (`test_region_retry_on_geoblock`, `test_acceptance_recorded`, `test_vision_step_carries_images`), `tests/test_adapters.py::LocalLlmImagesTest` |
+| Реактивная смена региона при гео-блоке, критерии приёмки (в т.ч. машинная проверка), vision-изображения (§4.5) | `tests/test_dispatch.py` (`test_region_retry_on_geoblock`, `test_acceptance_recorded`, `test_acceptance_checks_machine_and_manual`, `test_acceptance_contains_sees_output`, `test_vision_step_carries_images`), `tests/test_adapters.py::LocalLlmImagesTest` |
+| DAG-режим: цепочка, явный граф, условия, пропуск ветви, параллельный уровень, цикл, полуавтомат | `tests/test_dag.py` |
+| Устойчивость локальной LLM: понятные ошибки, подмена отсутствующей модели, таймаут, недоступный сервер | `tests/test_adapters.py::LocalLlmResilienceTest` |
 | Подсказки путей для отсутствующих источников (4.4) | `tests/test_inventory.py::test_absent_source_has_hint` |
 | Живой контекст/инвентарь/сквозной dry-run | `FACTORY_LIVE=1 python -m unittest tests.test_live` (в CI пропускается) |
 

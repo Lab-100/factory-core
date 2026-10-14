@@ -5,6 +5,7 @@ import os
 import stat
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 
 from factory.adapters.invr_tool import InvrToolAdapter
@@ -140,6 +141,80 @@ class LocalLlmImagesTest(unittest.TestCase):
                                                  dry_run=True)
         self.assertTrue(res.ok)
         self.assertEqual(res.output["images"], 1)
+
+
+class LocalLlmResilienceTest(unittest.TestCase):
+    """Устойчивость локальной LLM: понятные ошибки и подмена отсутствующей модели."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "config").mkdir()
+        settings_path = root / "config" / "settings.toml"
+        settings_path.write_text("", encoding="utf-8")
+        self.settings = Settings(settings_path, {
+            "adapters": {"llm_local_model": "hermes3:3b", "llm_local_auto_model": True}})
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _adapter(self, fail_names, available):
+        settings = self.settings
+
+        class Flaky(LocalLlmAdapter):
+            def models(self):
+                return list(available)
+
+            def _chat(self, model, message, timeout_s):
+                if model in set(fail_names):
+                    raise urllib.error.HTTPError("http://127.0.0.1:11434/api/chat", 404,
+                                                 "model not found", {}, None)
+                return {"message": {"content": "ok:" + model}}
+
+        return Flaky(settings)
+
+    def test_missing_model_falls_back_to_available(self) -> None:
+        adapter = self._adapter({"hermes3:3b"}, ["llama3:8b"])
+        res = adapter.run("chat", {"prompt": "привет"})
+        self.assertTrue(res.ok, res.error)
+        self.assertEqual(res.output["model"], "llama3:8b")
+        self.assertTrue(res.output.get("model_fallback"))
+        self.assertEqual(res.output.get("model_requested"), "hermes3:3b")
+
+    def test_missing_model_without_models_reports_cleanly(self) -> None:
+        adapter = self._adapter({"hermes3:3b"}, [])
+        res = adapter.run("chat", {"prompt": "привет"})
+        self.assertFalse(res.ok)
+        self.assertEqual(res.status, "error")
+        self.assertIn("не найдена", res.error)
+        self.assertIn("нет установленных моделей", res.error)
+
+    def test_auto_model_off_keeps_error_with_list(self) -> None:
+        self.settings.set("adapters.llm_local_auto_model", False)
+        adapter = self._adapter({"hermes3:3b"}, ["llama3:8b"])
+        res = adapter.run("chat", {"prompt": "привет"})
+        self.assertFalse(res.ok)
+        self.assertIn("не найдена", res.error)
+        self.assertIn("llama3:8b", res.error)
+
+    def test_timeout_reported_with_model_name(self) -> None:
+        class Slow(LocalLlmAdapter):
+            def _chat(self, model, message, timeout_s):
+                raise TimeoutError("timed out")
+
+        res = Slow(self.settings).run("chat", {"prompt": "привет", "timeout_s": 7})
+        self.assertFalse(res.ok)
+        self.assertIn("таймаут 7 с", res.error)
+        self.assertIn("hermes3:3b", res.error)
+
+    def test_unreachable_server_reported(self) -> None:
+        class Down(LocalLlmAdapter):
+            def _chat(self, model, message, timeout_s):
+                raise urllib.error.URLError("отказано в соединении")
+
+        res = Down(self.settings).run("chat", {"prompt": "привет"})
+        self.assertFalse(res.ok)
+        self.assertIn("Ollama недоступна", res.error)
 
 
 if __name__ == "__main__":

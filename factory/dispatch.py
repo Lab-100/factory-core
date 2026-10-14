@@ -139,6 +139,16 @@ class Dispatcher:
                     params["images"] = [str(item) for item in images]
                 if task.inputs.get("model"):
                     params["model"] = str(task.inputs["model"])
+                else:
+                    preferred = self._domain_llm(matched, cap)
+                    if preferred:
+                        params["llm"] = preferred
+                        if preferred == "ollama" or preferred.startswith("ollama:"):
+                            model = (preferred.split(":", 1)[1].strip() if ":" in preferred
+                                     else str(self.settings.get(
+                                         "adapters.llm_local_model", "") or ""))
+                            if model:
+                                params["model"] = model
             steps.append(Step(len(steps), cap, adapter, action, params))
 
         # шаги-инструменты склада INVR (§4.5): шимы вызываются напрямую
@@ -304,6 +314,23 @@ class Dispatcher:
         except Exception:  # noqa: BLE001 - условие не должно ронять задачу
             return False
 
+    def _domain_llm(self, matched, capability: str) -> str:
+        """Первый LLM-провайдер из поля `llm` домена, покрывающего компетенцию.
+
+        Поле `llm` домена задаёт приоритет провайдеров. Если домен предпочитает
+        локальную Ollama, шаг получит её модель (или модель по умолчанию), иначе
+        провайдер фиксируется в параметрах шага — это видно в плане и журнале.
+        """
+        for dom in matched:
+            caps = list(getattr(dom, "capabilities", []) or [])
+            if capability and caps and capability not in caps:
+                continue
+            for item in getattr(dom, "llm", []) or []:
+                name = str(item).strip()
+                if name:
+                    return name
+        return ""
+
     def _route_for(self, capability: str) -> tuple[str, str] | None:
         """Маршрут компетенции: настройка `routing.<cap>` или встроенная таблица.
 
@@ -398,6 +425,7 @@ class Dispatcher:
                 allow_region_switch, default_region)
 
         success = not stopped and all(r.ok or r.status == "skipped" for r in results)
+        checks = self._acceptance_checks(task, steps, results, success)
         summary = {
             "task": task.to_dict(),
             "domains": [d.name for d in matched],
@@ -408,6 +436,7 @@ class Dispatcher:
             "ok": success,
             "stopped": stopped,
             "acceptance": list(task.acceptance),
+            "acceptance_checks": checks,
         }
         # каталог артефактов (§5.6): складываем результат по домену
         catalog: str | None = None
@@ -633,6 +662,65 @@ class Dispatcher:
         retry.output = {**retry.output, **note} if isinstance(retry.output, dict) else note
         return retry
 
+    # --- критерии приёмки (§4.5): машинная проверка того, что проверяемо ---
+    def _acceptance_checks(self, task, steps, results: list[StepResult],
+                           success: bool) -> list[dict]:
+        """Оценить критерии приёмки задачи там, где это можно сделать машиной.
+
+        Критерий — строка; распознаются префиксы:
+
+          * ``ok`` / ``все шаги успешны`` — все шаги выполнены успешно;
+          * ``no-error`` / ``без ошибок`` — нет упавших шагов;
+          * ``step:<компетенция>`` — шаг с этой компетенцией выполнен успешно;
+          * ``contains:<текст>`` — текст есть в выводе хотя бы одного шага;
+          * ``not-contains:<текст>`` — текста нет ни в одном выводе;
+          * ``artifact:<путь>`` — файл существует (относительно корня фабрики).
+
+        Остальные критерии не угадываются: помечаются ``ok=None`` («на оператора»).
+        """
+        def texts() -> list[str]:
+            out: list[str] = []
+            for res in results:
+                if isinstance(res.output, dict):
+                    out += [str(v) for v in res.output.values()]
+            return out
+
+        checks: list[dict] = []
+        for raw in list(getattr(task, "acceptance", []) or []):
+            criterion = str(raw).strip()
+            low = criterion.lower()
+            ok: bool | None = None
+            note = "проверяет оператор"
+            if low in ("ok", "all-ok", "все шаги успешны", "успех"):
+                ok, note = success, ("все шаги успешны" if success else "есть неуспешные шаги")
+            elif low in ("no-error", "без ошибок"):
+                failed = [r for r in results if not r.ok and r.status != "skipped"]
+                ok = not failed
+                note = "ошибок нет" if ok else f"неуспешных шагов: {len(failed)}"
+            elif low.startswith("step:"):
+                cap = criterion.split(":", 1)[1].strip()
+                pairs = {(s.adapter, s.action) for s in steps if s.capability == cap}
+                hit = bool(pairs) and any(
+                    (r.adapter, r.action) in pairs and r.ok for r in results)
+                ok = hit
+                note = f"успешный шаг '{cap}'" if hit else f"нет успешного шага '{cap}'"
+            elif low.startswith("contains:"):
+                text = criterion.split(":", 1)[1]
+                found = any(text in block for block in texts())
+                ok, note = found, ("найдено в выводе" if found else "не найдено в выводе")
+            elif low.startswith("not-contains:"):
+                text = criterion.split(":", 1)[1]
+                bad = any(text in block for block in texts())
+                ok, note = (not bad), ("не найдено" if not bad else "найдено, но запрещено")
+            elif low.startswith("artifact:"):
+                rel = criterion.split(":", 1)[1].strip()
+                path = Path(rel)
+                target = path if path.is_absolute() else self._base() / path
+                ok = target.exists()
+                note = f"файл {'есть' if ok else 'не найден'}: {rel}"
+            checks.append({"criterion": str(raw), "ok": ok, "note": note})
+        return checks
+
     # --- каталог артефактов (§5.6) ---
     def _base(self) -> Path:
         return Path(self.settings.path).parent.parent
@@ -662,13 +750,16 @@ class Dispatcher:
                 encoding="utf-8")
             (target / "result.json").write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            (target / "report.md").write_text(self._report(task, matched, steps, results),
-                                              encoding="utf-8")
+            (target / "report.md").write_text(
+                self._report(task, matched, steps, results,
+                             checks=summary.get("acceptance_checks")),
+                encoding="utf-8")
             return rel
         except OSError:
             return None
 
-    def _report(self, task, matched, steps, results: list[StepResult]) -> str:
+    def _report(self, task, matched, steps, results: list[StepResult],
+                checks: list[dict] | None = None) -> str:
         lines = [f"# {task.goal}", ""]
         if task.operator:
             lines.append(f"- Оператор: {task.operator}")
@@ -690,8 +781,17 @@ class Dispatcher:
         if task.acceptance:
             lines.append("")
             lines.append("## Критерии приёмки")
-            lines.append("_автоматически не оцениваются — проверяет оператор_")
-            lines += [f"- [ ] {item}" for item in task.acceptance]
+            marked = {c.get("criterion"): c for c in (checks or [])}
+            if not marked:
+                lines.append("_автоматически не оцениваются — проверяет оператор_")
+            else:
+                lines.append("_машинно проверяемые критерии отмечены; «?» — на оператора_")
+            for item in task.acceptance:
+                check = marked.get(str(item))
+                mark = " " if check is None else ("x" if check.get("ok") else
+                                                 ("?" if check.get("ok") is None else " "))
+                suffix = f" — {check['note']}" if check and check.get("note") else ""
+                lines.append(f"- [{mark}] {item}{suffix}")
         return "\n".join(lines) + "\n"
 
     def _observe(self, task, task_id: str, matched, automation: str, steps,

@@ -37,9 +37,16 @@ class MetricsIntegration:
         return self.shim() is not None
 
     def health(self) -> dict:
-        return {"integration": self.name, "available": self.available(),
-                "shim": str(self.shim()) if self.shim() else None,
-                "sink": "orch-metrics" if self.shim() else "local"}
+        shim = self.shim()
+        info = {"integration": self.name, "available": shim is not None,
+                "shim": str(shim) if shim else None,
+                "sink": "orch-metrics" if shim else "local"}
+        if shim is None:
+            path = self._local_path()
+            info["local_path"] = str(path)
+            info["hint"] = ("шим orch-metrics не найден — метрики честно пишутся "
+                            "в локальный приёмник state/metrics.jsonl")
+        return info
 
     def emit(self, event: dict) -> dict:
         """Записать событие метрик: внешний коллектор или локальный файл."""

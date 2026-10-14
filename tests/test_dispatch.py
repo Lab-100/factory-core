@@ -316,6 +316,74 @@ class DispatcherTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_acceptance_checks_machine_and_manual(self) -> None:
+        """Критерии приёмки: проверяемое — машиной, остальное — на оператора."""
+        tmp, dispatcher, _ = self._make("auto")
+        try:
+            task = Task(goal="найди данные", capabilities=["web-search", "answer"],
+                        acceptance=["ok", "no-error", "step:answer",
+                                    "artifact:нет-такого-файла.txt",
+                                    "источники указаны вручную"])
+            result = dispatcher.execute(task, dry_run=False)
+            checks = {c["criterion"]: c for c in result["acceptance_checks"]}
+            self.assertTrue(checks["ok"]["ok"])
+            self.assertTrue(checks["no-error"]["ok"])
+            self.assertTrue(checks["step:answer"]["ok"])
+            self.assertFalse(checks["artifact:нет-такого-файла.txt"]["ok"])
+            self.assertIsNone(checks["источники указаны вручную"]["ok"])
+            report = (Path(tmp.name) / result["catalog"] / "report.md").read_text(
+                encoding="utf-8")
+            self.assertIn("- [x] ok", report)
+            self.assertIn("- [?] источники указаны вручную", report)
+        finally:
+            tmp.cleanup()
+
+    def test_acceptance_contains_sees_output(self) -> None:
+        """Критерий contains: смотрит в вывод шагов, not-contains: — наоборот."""
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / "config").mkdir()
+            (root / "domains.toml").write_text(BASE, encoding="utf-8")
+            registry = DomainRegistry(root / "domains.toml", [])
+            settings = Settings(root / "config" / "settings.toml", dict(SETTINGS))
+            ledger = Ledger(root / "ledger.jsonl")
+            adapters = {"lab100": FakeSourceAdapter(settings),
+                        "llm_local": FakeLlm(settings)}
+            dispatcher = Dispatcher(settings, registry, ledger, adapters=adapters,
+                                    integrations={})
+            task = Task(goal="найди", capabilities=["web-search"],
+                        acceptance=["contains:источник", "not-contains:ошибка"])
+            result = dispatcher.execute(task, dry_run=False)
+            checks = {c["criterion"]: c for c in result["acceptance_checks"]}
+            self.assertTrue(checks["contains:источник"]["ok"])
+            self.assertTrue(checks["not-contains:ошибка"]["ok"])
+        finally:
+            tmp.cleanup()
+
+    def test_domain_llm_preferred_provider_recorded(self) -> None:
+        """Поле llm домена задаёт приоритет провайдера; он виден в параметрах шага."""
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            (root / "config").mkdir()
+            # дописываем llm в последнюю секцию BASE — это [domain.coding]
+            (root / "domains.toml").write_text(BASE + '\nllm = ["ollama", "cloud"]\n',
+                                               encoding="utf-8")
+            registry = DomainRegistry(root / "domains.toml", [])
+            settings = Settings(root / "config" / "settings.toml", dict(SETTINGS))
+            ledger = Ledger(root / "ledger.jsonl")
+            adapters = {"lab100": FakeAdapter(settings), "llm_local": FakeLlm(settings)}
+            dispatcher = Dispatcher(settings, registry, ledger, adapters=adapters,
+                                    integrations={})
+            task = Task(goal="напиши код", capabilities=["code"])
+            _, steps = dispatcher.plan(task)
+            code = [s for s in steps if s.capability == "code"]
+            self.assertEqual(len(code), 1)
+            self.assertEqual(code[0].params.get("llm"), "ollama")
+        finally:
+            tmp.cleanup()
+
     def test_vision_step_carries_images(self) -> None:
         """Компетенция vision передаёт пути к изображениям в локальную LLM (§4.5)."""
         tmp, dispatcher, _ = self._make("auto")

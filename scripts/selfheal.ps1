@@ -33,17 +33,20 @@ $root = Split-Path -Parent $here
 if (-not $Log) { $Log = Join-Path $root "state\selfheal.tasks.log" }
 
 function Resolve-Factory {
-    # Шим фабрики: factory.exe рядом, dist\factory.exe, иначе `python -m factory`.
+    # Для самопочинки репозитория приоритет — исходники (`python -m factory`):
+    # собранный factory.exe может быть старой сборкой без новых команд.
+    foreach ($name in @("py", "python", "python3")) {
+        $found = Get-Command $name -ErrorAction SilentlyContinue
+        if ($found) { return @($found.Source, "-m", "factory") }
+    }
     $exe = Join-Path $here "factory.exe"
     if (-not (Test-Path $exe)) { $exe = Join-Path $root "dist\factory.exe" }
     if (Test-Path $exe) { return @($exe) }
-    $py = "python"
-    if (Get-Command py -ErrorAction SilentlyContinue) { $py = "py" }
-    return @($py, "-m", "factory")
+    return @("python", "-m", "factory")
 }
 
 function Invoke-Heal {
-    $base = Resolve-Factory
+    $base = @(Resolve-Factory)
     $exe = $base[0]
     $prefix = @()
     if ($base.Count -gt 1) { $prefix = $base[1..($base.Count - 1)] }
@@ -53,10 +56,20 @@ function Invoke-Heal {
     if ($Push) { $cliArgs += "--push" }
     if ($Json) { $cliArgs += "--json" }
 
+    # Внешний вывод фабрики — UTF-8; иначе под планировщиком получаются кракозябры.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = $utf8
+    $OutputEncoding = $utf8
+    $env:PYTHONIOENCODING = "utf-8"
+
     Push-Location $root
     try {
         $output = & $exe @prefix @cliArgs 2>&1
         $code = $LASTEXITCODE
+        if ($null -eq $code) { $code = 0 }
+    } catch {
+        $output = @("ошибка запуска фабрики: " + $_.Exception.Message)
+        $code = 1
     } finally {
         Pop-Location
     }
@@ -65,7 +78,7 @@ function Invoke-Heal {
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     $stamp = (Get-Date).ToUniversalTime().ToString("s") + "Z"
     Add-Content -Path $Log -Value ("[{0}] rc={1} {2}" -f $stamp, $code, ($output -join " | ")) -Encoding UTF8
-    if (-not $Quiet) { $output | ForEach-Object { Write-Output $_ } }
+    if (-not $Quiet) { $output | ForEach-Object { Write-Host $_ } }
     return $code
 }
 
@@ -75,7 +88,7 @@ function Install-Task {
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
     $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) `
         -RepetitionInterval (New-TimeSpan -Minutes $Interval) `
-        -RepetitionDuration ([TimeSpan]::MaxValue)
+        -RepetitionDuration (New-TimeSpan -Days 3650)
     $trigger.Repetition = $repeat.Repetition
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Description "Самопочинка фабрики Lab-100: тесты и возврат к зелёному состоянию" -Force | Out-Null
@@ -98,4 +111,5 @@ function Uninstall-Task {
 
 if ($Install) { Install-Task; return }
 if ($Uninstall) { Uninstall-Task; return }
-exit (Invoke-Heal)
+$code = Invoke-Heal
+exit $code

@@ -723,14 +723,9 @@ def _cmd_heal(args) -> int:
         return 2
     report = healer.heal(fix=bool(args.fix), timeout=args.timeout, message=args.message)
     if args.commit or args.push:
-        if (report.get("tests") or {}).get("ok"):
-            if args.commit:
-                report["commit"] = healer.commit(
-                    args.message or tr("heal.commit_message"))
-            if args.push:
-                report["push"] = healer.push()
-        else:
-            report["commit"] = {"ok": False, "committed": False, "detail": "tests-failed"}
+        report["publish"] = healer.publish(
+            push=bool(args.push), message=args.message, wait=args.wait or 0.0,
+            interval=healer.wait_interval, timeout=args.timeout)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report.get("healed") else 1
@@ -752,18 +747,30 @@ def _cmd_heal(args) -> int:
         print(tr("heal.broken_head"))
     elif action == "stash-failed":
         print(tr("heal.stash_failed"))
-    commit = report.get("commit")
-    if commit:
-        if not commit.get("ok"):
-            print(tr("heal.commit_failed", detail=commit.get("detail", "")))
-        elif commit.get("committed"):
-            print(tr("heal.commit_ok", head=commit.get("head", "")))
-        else:
-            print(tr("heal.commit_none"))
-    push = report.get("push")
-    if push:
-        print(tr("heal.push_ok") if push.get("ok")
-              else tr("heal.push_failed", detail=push.get("detail", "")))
+    publish = report.get("publish")
+    if publish:
+        print(tr("heal.publish_title", action=publish.get("action", "")))
+        if publish.get("waited"):
+            print(tr("heal.publish_waited", seconds=publish["waited"]))
+        kind = publish.get("action")
+        if kind == "tests-red":
+            print(tr("heal.publish_tests_red"))
+        elif kind == "foreign-busy":
+            print(tr("heal.publish_foreign", count=len(publish.get("foreign") or [])))
+        elif kind == "commit-failed":
+            detail = (publish.get("commit") or {}).get("detail", "")
+            print(tr("heal.publish_commit_failed", detail=detail))
+        elif kind in ("committed", "pushed"):
+            made = publish.get("commit") or {}
+            if made.get("committed"):
+                print(tr("heal.publish_commit_ok", head=made.get("head", "")))
+            if kind == "pushed":
+                print(tr("heal.publish_push_ok"))
+        elif kind == "push-failed":
+            detail = (publish.get("push") or {}).get("detail", "")
+            print(tr("heal.publish_push_failed", detail=detail))
+        elif kind == "nothing":
+            print(tr("heal.publish_nothing"))
     return 0 if report.get("healed") else 1
 
 
@@ -922,6 +929,8 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_heal.add_argument("--push", action="store_true", help=t(lang, "arg.heal.push"))
     p_heal.add_argument("--timeout", type=float, default=None,
                         help=t(lang, "arg.heal.timeout"))
+    p_heal.add_argument("--wait", type=float, default=0.0,
+                        help=t(lang, "arg.heal.wait"))
     p_heal.add_argument("--message", default=None, help=t(lang, "arg.heal.message"))
     p_heal.add_argument("--json", action="store_true", help=t(lang, "arg.heal.json"))
     p_heal.set_defaults(func=_cmd_heal)

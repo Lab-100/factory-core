@@ -5,7 +5,9 @@ Git и unittest подменяются внедрённым ``run`` — реал
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -15,10 +17,11 @@ from factory.selfheal import SelfHealer
 class FakeRunner:
     """Подмена подпроцессов: отдаёт заранее заданные ответы по порядку."""
 
-    def __init__(self, tests=None, dirty=None, head: str = "abc123"):
+    def __init__(self, tests=None, dirty=None, head: str = "abc123", ahead: int = 0):
         self.tests = list(tests or [(0, "OK")])
         self.dirty = [list(item) for item in (dirty or [[]])]
         self.commit_head = head
+        self.ahead_count = ahead
         self.calls: list[list[str]] = []
 
     def __call__(self, args, timeout=None):  # noqa: ANN001
@@ -26,20 +29,24 @@ class FakeRunner:
         if args[:3] == ["git", "status", "--porcelain"]:
             lines = self.dirty.pop(0) if self.dirty else []
             return 0, ("\n".join(lines) + "\n" if lines else "")
+        if args[:3] == ["git", "rev-list", "--count"]:
+            return 0, f"{self.ahead_count}\n"
         if args[:2] == ["git", "rev-parse"]:
-            return 0, "abc123\n"
+            return 0, f"{self.commit_head}\n"
         if args[:2] == ["git", "stash"]:
             return 0, "Saved working directory\n"
         if args[:2] == ["git", "push"]:
             return 0, "Everything up-to-date\n"
-        if args[:1] == ["git"] and args[1:2] == ["commit"]:
+        if args[:2] == ["git", "commit"]:
             return 0, "[main abc123] msg\n"
         if "unittest" in args:
             return self.tests.pop(0) if self.tests else (0, "OK")
         return 0, ""
 
     def ran(self, *prefix: str) -> bool:
-        return any(call[:len(prefix)] == list(prefix) for call in self.calls)
+        return any(any(call[i:i + len(prefix)] == list(prefix)
+                       for i in range(len(call) - len(prefix) + 1))
+                   for call in self.calls)
 
 
 class SelfHealTest(unittest.TestCase):
@@ -113,6 +120,81 @@ class SelfHealTest(unittest.TestCase):
         push = healer.push()
         self.assertTrue(push["ok"])
 
+    # --- чужая работа и публикация ---
+    def _touch(self, root: Path, name: str = "work.txt", age: float = 0.0) -> Path:
+        path = root / name
+        path.write_text("x", encoding="utf-8")
+        moment = time.time() - age
+        os.utime(path, (moment, moment))
+        return path
+
+    def test_activity_flags_fresh_work(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]])
+        healer, root = self._make(runner)
+        self._touch(root)
+        state = healer.activity()
+        self.assertTrue(state["active"])
+        self.assertEqual(state["count"], 1)
+
+    def test_activity_quiet_for_finished_work(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]])
+        healer, root = self._make(runner)
+        self._touch(root, age=3600)
+        self.assertFalse(healer.activity()["active"])
+
+    def test_wait_for_idle_gives_up_after_timeout(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]] * 40)
+        healer, root = self._make(runner)
+        self._touch(root)
+        healer._sleep = lambda _seconds: None
+        state = healer.wait_for_idle(wait=60, interval=30)
+        self.assertTrue(state["active"])
+        self.assertGreater(state["waited"], 0)
+
+    def test_publish_refuses_while_busy(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]] * 5)
+        healer, root = self._make(runner)
+        self._touch(root)
+        report = healer.publish(push=True, wait=0)
+        self.assertEqual(report["action"], "foreign-busy")
+        self.assertFalse(report["published"])
+        self.assertFalse(runner.ran("git", "commit"))
+
+    def test_publish_commits_finished_work(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]])
+        healer, root = self._make(runner)
+        self._touch(root, age=3600)
+        report = healer.publish(push=False)
+        self.assertEqual(report["action"], "committed")
+        self.assertTrue((report["commit"] or {}).get("committed"))
+        self.assertTrue(runner.ran("git", "commit"))
+
+    def test_publish_pushes_finished_work(self) -> None:
+        runner = FakeRunner(dirty=[["?? work.txt"]], ahead=1)
+        healer, root = self._make(runner)
+        self._touch(root, age=3600)
+        report = healer.publish(push=True)
+        self.assertEqual(report["action"], "pushed")
+        self.assertTrue(report["published"])
+        self.assertTrue(runner.ran("git", "push"))
+
+    def test_publish_nothing_when_clean(self) -> None:
+        runner = FakeRunner(dirty=[[]])
+        healer, _ = self._make(runner)
+        report = healer.publish(push=True)
+        self.assertEqual(report["action"], "nothing")
+        self.assertFalse(report["published"])
+        self.assertFalse(runner.ran("git", "commit"))
+
+    def test_publish_refuses_when_tests_red(self) -> None:
+        runner = FakeRunner(tests=[(1, "FAILED (failures=1)")], dirty=[["?? work.txt"]])
+        healer, root = self._make(runner)
+        self._touch(root, age=3600)
+        report = healer.publish(push=True)
+        self.assertEqual(report["action"], "tests-red")
+        self.assertFalse(runner.ran("git", "commit"))
+
 
 if __name__ == "__main__":
+    unittest.main()
     unittest.main()

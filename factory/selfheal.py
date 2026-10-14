@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,6 +57,7 @@ class SelfHealer:
         self.ledger = ledger
         self.log_path = self.root / "state" / "selfheal.jsonl"
         self._run_impl = run
+        self._sleep = time.sleep
 
     # --- вспомогательное ---
     def _setting(self, key: str, default=None):
@@ -85,6 +87,14 @@ class SelfHealer:
             if found:
                 return [found]
         return [sys.executable or "python"]
+
+    @property
+    def wait_interval(self) -> float:
+        """Пауза между проверками при ожидании завершения чужой работы."""
+        try:
+            return float(self._setting("heal.wait_interval", 30) or 30)
+        except (TypeError, ValueError):
+            return 30.0
 
     def tests_command(self) -> list[str]:
         suite = str(self._setting("heal.tests", "tests") or "tests")
@@ -130,6 +140,74 @@ class SelfHealer:
         code, _ = self.run(["git", "stash", "pop"])
         return code == 0
 
+    def _status_paths(self) -> list[str]:
+        """Пути изменённых файлов из ``git status --porcelain``."""
+        paths: list[str] = []
+        for line in self.status_lines():
+            raw = line[3:].strip()
+            if " -> " in raw:
+                raw = raw.split(" -> ", 1)[1]
+            raw = raw.strip().strip('"')
+            if raw:
+                paths.append(raw)
+        return paths
+
+    @property
+    def grace(self) -> float:
+        """Сколько секунд правка считается «свежей» (работу ещё пишут)."""
+        try:
+            return float(self._setting("heal.foreign_grace", 180) or 180)
+        except (TypeError, ValueError):
+            return 180.0
+
+    def activity(self, grace: float | None = None) -> dict:
+        """Идёт ли работа над незакоммиченными правками прямо сейчас.
+
+        Признак — свежий ``mtime`` изменённых файлов: если кто-то пишет код,
+        файл менялся только что. Затихшие правки считаются завершённой работой.
+        """
+        grace = self.grace if grace is None else grace
+        files = self._status_paths()
+        now = time.time()
+        ages: list[float] = []
+        for rel in files:
+            try:
+                ages.append(max(0.0, now - (self.root / rel).stat().st_mtime))
+            except OSError:
+                continue
+        newest = min(ages) if ages else None
+        active = bool(files) and newest is not None and newest < grace
+        return {"files": files, "count": len(files), "newest_age": newest,
+                "active": active, "waited": 0.0}
+
+    def wait_for_idle(self, wait: float = 0.0, interval: float = 30.0,
+                      grace: float | None = None) -> dict:
+        """Дождаться завершения активной работы (не дольше ``wait`` секунд)."""
+        state = self.activity(grace)
+        if not state["active"] or wait <= 0:
+            return state
+        waited = 0.0
+        while state["active"] and waited < wait:
+            pause = min(interval, wait - waited)
+            if pause <= 0:
+                break
+            self._sleep(pause)
+            waited += pause
+            state = self.activity(grace)
+        state["waited"] = round(waited, 1)
+        return state
+
+    def ahead(self) -> int:
+        """Сколько локальных коммитов ещё не отправлено в удалённый репозиторий."""
+        code, output = self.run(["git", "rev-list", "--count", "@{u}..HEAD"])
+        if code != 0:
+            return 0
+        lines = output.strip().splitlines()
+        try:
+            return int(lines[0])
+        except (ValueError, IndexError):
+            return 0
+
     def commit(self, message: str) -> dict:
         """Зафиксировать все изменения; «нечего коммитить» — не ошибка."""
         code, output = self.run(["git", "add", "-A"])
@@ -147,6 +225,50 @@ class SelfHealer:
     def push(self) -> dict:
         code, output = self.run(["git", "push"])
         return {"ok": code == 0, "detail": _last_line(output)}
+
+    def publish(self, *, push: bool = False, message: str | None = None,
+                wait: float = 0.0, interval: float = 30.0,
+                grace: float | None = None, timeout: float | None = None) -> dict:
+        """Опубликовать завершённую работу, не мешая чужой (§ самопочинка).
+
+        Публикация выполняется только когда чужой работы нет:
+
+        1. тесты должны быть зелёными — иначе ничего не публикуется;
+        2. если правки ещё пишут (свежие файлы) — ждём завершения ``wait`` секунд;
+        3. завершённые правки коммитятся, затем (по флагу) отправляются в remote.
+        """
+        report = {"action": "nothing", "published": False, "commit": None,
+                  "push": None, "foreign": [], "waited": 0.0}
+        run = self.tests(timeout=timeout)
+        report["tests"] = {key: run[key] for key in ("ok", "failed", "returncode")}
+        if not run["ok"]:
+            report["action"] = "tests-red"
+            self._record(report)
+            return report
+        state = self.wait_for_idle(wait, interval, grace)
+        report["foreign"] = state["files"]
+        report["waited"] = state.get("waited", 0.0)
+        if state["active"]:
+            report["action"] = "foreign-busy"
+            self._record(report)
+            return report
+        if state["count"]:
+            commit = self.commit(message or "завершённая работа (factory heal)")
+            report["commit"] = commit
+            if not commit.get("ok"):
+                report["action"] = "commit-failed"
+                self._record(report)
+                return report
+        if push and self.ahead() > 0:
+            result = self.push()
+            report["push"] = result
+            report["action"] = "pushed" if result.get("ok") else "push-failed"
+        else:
+            report["action"] = "committed" if report["commit"] else "nothing"
+        if report["action"] == "pushed":
+            report["published"] = True
+        self._record(report)
+        return report
 
     # --- тесты ---
     def tests(self, timeout: float | None = None) -> dict:

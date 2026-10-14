@@ -282,22 +282,37 @@ python -m factory settings set ui.lang zh   # 中文
 ```bash
 python -m factory heal                          # диагностика (тесты + состояние git)
 python -m factory heal --fix                    # починить: сломанные правки уходят в stash
-python -m factory heal --fix --commit --push    # плюс коммит и отправка зелёного состояния
+python -m factory heal --fix --commit --push    # публикация завершённой работы
+python -m factory heal --commit --push --wait 600  # …с ожиданием завершения чужой работы
 python -m factory heal --json                   # отчёт в JSON
 ```
 
+Публикация (`--commit`/`--push`) выполняется только когда чужой работы нет:
+сначала прогоняются тесты (красные — публикация отменяется), затем проверяется,
+не пишут ли правки прямо сейчас (у изменённых файлов свежий `mtime`). Если кто-то
+ещё работает — механизм не трогает его изменения и ждёт завершения (`--wait`
+секунд, по умолчанию из `heal.wait`). Затихшие правки считаются завершённой
+работой: они коммитятся и (по флагу `--push`) отправляются в remote. Если
+публиковать нечего — так и сообщается.
+
 Отчёт и история пишутся в `state/selfheal.jsonl` и в единый журнал
-(`kind = "selfheal"`). Настройки — секция `[heal]` в `config/settings.toml`.
+(`kind = "selfheal"`). Настройки — секция `[heal]` в `config/settings.toml`
+(`foreign_grace`, `wait`, `wait_interval`).
 
 Автономный режим (рекомендуется): скрипт `scripts/selfheal.ps1` умеет
 зарегистрировать задачу планировщика Windows, которая запускает починку сама.
 
 ```powershell
-.\scripts\selfheal.ps1                 # разовый прогон
-.\scripts\selfheal.ps1 -Install        # задача планировщика каждые 15 минут (+ git-хуки)
+.\scripts\selfheal.ps1                       # разовый прогон
+.\scripts\selfheal.ps1 -Publish              # коммит/пуш завершённой работы (чужую не трогает)
+.\scripts\selfheal.ps1 -Publish -Wait 600    # …с ожиданием завершения чужой работы
+.\scripts\selfheal.ps1 -Install              # задача планировщика каждые 15 минут (+ git-хуки)
 .\scripts\selfheal.ps1 -Install -Interval 30
-.\scripts\selfheal.ps1 -Uninstall      # снять задачу
+.\scripts\selfheal.ps1 -Uninstall            # снять задачу
 ```
+
+Задача планировщика ставится с `-Fix -Publish -Wait 600`: сама возвращает копию
+к зелени и публикует завершённую работу, но не мешает тому, кто ещё пишет код.
 
 Установка задачи дополнительно включает git-хуки (`git config core.hooksPath
 .githooks`): хук `.githooks/pre-push` не даёт отправить в удалённый репозиторий

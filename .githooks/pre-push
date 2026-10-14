@@ -1,0 +1,26 @@
+#!/bin/sh
+# Хук Git (pre-push): не пускать сломанное в удалённый репозиторий.
+#
+# Включается один раз командой:
+#     git config core.hooksPath .githooks
+# (её выполняет и `scripts/selfheal.ps1 -Install`).
+#
+# Самопочинить рабочую копию:  py -m factory heal --fix
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || exit 0
+[ -d tests ] || exit 0
+
+if command -v py >/dev/null 2>&1; then
+    runner=py
+elif command -v python >/dev/null 2>&1; then
+    runner=python
+else
+    echo "pre-push: не найден Python — проверка тестов пропущена" >&2
+    exit 0
+fi
+
+if ! "$runner" -m unittest discover -s tests; then
+    echo "" >&2
+    echo "pre-push: тесты не прошли — push отменён." >&2
+    echo "Починить: factory heal --fix (или py -m factory heal --fix)" >&2
+    exit 1
+fi

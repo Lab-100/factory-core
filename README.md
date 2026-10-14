@@ -271,6 +271,38 @@ python -m factory settings set ui.lang zh   # 中文
 Также можно задать язык окружением `FACTORY_LANG=ru|en|zh`. В веб-дашборде
 язык переключается в секции «Настройки» (язык применяется сразу).
 
+## Самопочинка (self-heal)
+
+Рабочая копия репозитория должна оставаться зелёной без ручного вмешательства.
+За это отвечает команда `heal`: она прогоняет полный набор тестов и, если тесты
+падают из-за незакоммиченных правок, аккуратно убирает их в `git stash`
+(метка `factory-selfheal-<время>`), возвращая копию к последнему зелёному
+коммиту. Правки не теряются — их можно вернуть командой `git stash pop`.
+
+```bash
+python -m factory heal                          # диагностика (тесты + состояние git)
+python -m factory heal --fix                    # починить: сломанные правки уходят в stash
+python -m factory heal --fix --commit --push    # плюс коммит и отправка зелёного состояния
+python -m factory heal --json                   # отчёт в JSON
+```
+
+Отчёт и история пишутся в `state/selfheal.jsonl` и в единый журнал
+(`kind = "selfheal"`). Настройки — секция `[heal]` в `config/settings.toml`.
+
+Автономный режим (рекомендуется): скрипт `scripts/selfheal.ps1` умеет
+зарегистрировать задачу планировщика Windows, которая запускает починку сама.
+
+```powershell
+.\scripts\selfheal.ps1                 # разовый прогон
+.\scripts\selfheal.ps1 -Install        # задача планировщика каждые 15 минут (+ git-хуки)
+.\scripts\selfheal.ps1 -Install -Interval 30
+.\scripts\selfheal.ps1 -Uninstall      # снять задачу
+```
+
+Установка задачи дополнительно включает git-хуки (`git config core.hooksPath
+.githooks`): хук `.githooks/pre-push` не даёт отправить в удалённый репозиторий
+сломанное состояние — при падении тестов push отклоняется.
+
 ## Тесты
 
 ```bash

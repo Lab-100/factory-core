@@ -12,6 +12,7 @@ from ..dispatch import Dispatcher
 from ..doctor import run_doctor, summarize
 from ..i18n import choose, make_translator, t
 from ..sessions import SessionStore
+from ..selfheal import SelfHealer
 from ..task import Task
 
 
@@ -712,6 +713,60 @@ def _cmd_providers(args) -> int:
     return 0
 
 
+def _cmd_heal(args) -> int:
+    """Прогнать тесты и вернуть рабочую копию к зелёному состоянию (self-heal)."""
+    root, settings, _, ledger = build_context()
+    tr = make_translator(settings)
+    healer = SelfHealer(root, settings=settings, ledger=ledger)
+    if not healer.git_available():
+        print(tr("heal.no_git"))
+        return 2
+    report = healer.heal(fix=bool(args.fix), timeout=args.timeout, message=args.message)
+    if args.commit or args.push:
+        if (report.get("tests") or {}).get("ok"):
+            if args.commit:
+                report["commit"] = healer.commit(
+                    args.message or tr("heal.commit_message"))
+            if args.push:
+                report["push"] = healer.push()
+        else:
+            report["commit"] = {"ok": False, "committed": False, "detail": "tests-failed"}
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report.get("healed") else 1
+    tests = report.get("tests") or {}
+    print(tr("heal.title", action=report.get("action", "")))
+    print(tr("heal.tests_ok") if tests.get("ok")
+          else tr("heal.tests_failed", failed=tests.get("failed", 0)))
+    print(tr("heal.dirty", count=report.get("dirty", 0)))
+    if report.get("head"):
+        print(tr("heal.head", head=report["head"]))
+    if report.get("stash"):
+        print(tr("heal.stash", label=report["stash"]))
+    action = report.get("action")
+    if action == "clean":
+        print(tr("heal.clean"))
+    elif action == "healed-by-stash":
+        print(tr("heal.healed_stash"))
+    elif action == "broken-head":
+        print(tr("heal.broken_head"))
+    elif action == "stash-failed":
+        print(tr("heal.stash_failed"))
+    commit = report.get("commit")
+    if commit:
+        if not commit.get("ok"):
+            print(tr("heal.commit_failed", detail=commit.get("detail", "")))
+        elif commit.get("committed"):
+            print(tr("heal.commit_ok", head=commit.get("head", "")))
+        else:
+            print(tr("heal.commit_none"))
+    push = report.get("push")
+    if push:
+        print(tr("heal.push_ok") if push.get("ok")
+              else tr("heal.push_failed", detail=push.get("detail", "")))
+    return 0 if report.get("healed") else 1
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -860,6 +915,16 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_logs.add_argument("--sources", action="store_true", help=t(lang, "arg.logs.sources"))
     p_logs.add_argument("--json", action="store_true", help=t(lang, "arg.logs.json"))
     p_logs.set_defaults(func=_cmd_logs)
+
+    p_heal = sub.add_parser("heal", help=t(lang, "cmd.heal"))
+    p_heal.add_argument("--fix", action="store_true", help=t(lang, "arg.heal.fix"))
+    p_heal.add_argument("--commit", action="store_true", help=t(lang, "arg.heal.commit"))
+    p_heal.add_argument("--push", action="store_true", help=t(lang, "arg.heal.push"))
+    p_heal.add_argument("--timeout", type=float, default=None,
+                        help=t(lang, "arg.heal.timeout"))
+    p_heal.add_argument("--message", default=None, help=t(lang, "arg.heal.message"))
+    p_heal.add_argument("--json", action="store_true", help=t(lang, "arg.heal.json"))
+    p_heal.set_defaults(func=_cmd_heal)
 
     return parser
 

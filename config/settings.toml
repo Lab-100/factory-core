@@ -165,3 +165,14 @@ auto_route = false          # true — направлять code/answer/deep-res
 mode = "linear"
 # Максимальное число параллельных шагов внутри уровня DAG
 parallel = 2
+
+[heal]
+# Самопочинка рабочей копии (`factory heal`): прогон тестов и возврат к зелени.
+# Включена ли починка при запуске из планировщика (--fix включает принудительно)
+fix = false
+# Лимит времени на прогон тестов, секунд
+timeout = 900
+# Каталог тестов для `python -m unittest discover`
+tests = "tests"
+# Явный интерпретатор Python (пусто — текущий либо py/python из PATH)
+python = ""

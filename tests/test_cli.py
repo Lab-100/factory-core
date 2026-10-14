@@ -82,10 +82,25 @@ class CliContextTest(unittest.TestCase):
 class CliTest(unittest.TestCase):
     def test_new_commands_registered(self) -> None:
         parser = build_parser()
-        for name in ("inventory", "quotas", "watchdog", "ledger", "manifest", "catalog"):
+        for name in ("inventory", "quotas", "watchdog", "ledger", "manifest", "catalog",
+                     "heal"):
             args = parser.parse_args([name])
             self.assertTrue(callable(getattr(args, "func", None)),
                             f"команда {name} без обработчика")
+
+    def test_heal_flags(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["heal"])
+        self.assertFalse(args.fix)
+        self.assertIsNone(args.timeout)
+        args = parser.parse_args(["heal", "--fix", "--commit", "--push", "--json",
+                                  "--timeout", "60", "--message", "м"])
+        self.assertTrue(args.fix)
+        self.assertTrue(args.commit)
+        self.assertTrue(args.push)
+        self.assertTrue(args.json)
+        self.assertEqual(args.timeout, 60.0)
+        self.assertEqual(args.message, "м")
 
     def test_quotas_reset_flags(self) -> None:
         parser = build_parser()

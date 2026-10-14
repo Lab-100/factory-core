@@ -76,7 +76,8 @@ class CliContextTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         text = out.getvalue()
         self.assertIn("t1", text)
-        self.assertNotIn("t2", text)
+        # имя временного каталога может случайно содержать «t2»; проверяем домен
+        self.assertNotIn("weather", text)
 
 
 class CliTest(unittest.TestCase):

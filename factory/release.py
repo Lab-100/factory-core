@@ -381,20 +381,33 @@ def release(token: str, tag: str | None = None, draft: bool = False, skip_build:
     release_id = release_data["id"]
     log(tr("rel.release", url=release_data.get("html_url")))
 
-    # 5) ассет (перезапись при повторе)
-    asset_name = zip_path.name
+    # 5) ассеты (перезапись при повторе): архив и, если собран, установщик
+    assets: list[Path] = [zip_path]
+    setup = root / "dist" / "factory-setup.exe"
+    if setup.exists():
+        assets.append(setup)
+    uploaded = [_upload_asset(token, repo, release_data, path, log, tr) for path in assets]
+    return {"tag": tag, "release_url": release_data.get("html_url"),
+            "asset": uploaded[0] if uploaded else None, "assets": uploaded}
+
+
+def _upload_asset(token: str, repo: str, release_data: dict, path: Path, log, tr) -> str | None:
+    """Загрузить файл в релиз; одноимённый ассет перезаписывается."""
+    release_id = release_data["id"]
+    name = path.name
     for asset in release_data.get("assets", []):
-        if asset.get("name") == asset_name:
+        if asset.get("name") == name:
             api("DELETE", f"{GITHUB_API}/repos/{repo}/releases/assets/{asset['id']}", token)
     upload_url = release_data.get("upload_url") or \
         f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets"
     upload_url = upload_url.split("{", 1)[0]
-    upload_url = f"{upload_url}?name={urllib.parse.quote(asset_name)}"
-    api_status, asset = api("POST", upload_url, token, zip_path.read_bytes(), content_type="application/zip")
-    if api_status >= 400:
-        raise RuntimeError(f"не удалось загрузить ассет: {asset}")
+    upload_url = f"{upload_url}?name={urllib.parse.quote(name)}"
+    status, asset = api("POST", upload_url, token, path.read_bytes(),
+                        content_type="application/octet-stream")
+    if status >= 400:
+        raise RuntimeError(f"не удалось загрузить ассет {name}: {asset}")
     log(tr("rel.asset", url=asset.get("browser_download_url")))
-    return {"tag": tag, "release_url": release_data.get("html_url"), "asset": asset.get("browser_download_url")}
+    return asset.get("browser_download_url")
 
 
 def _release_body() -> str:
@@ -402,6 +415,8 @@ def _release_body() -> str:
         "Фабрика Lab-100 — пульт и диспетчер для объединения репозиториев Lab-100.\n\n"
         "- Подвижные (динамические) домены: config/domains.toml + профили, горячая перезагрузка.\n"
         "- Диспетчер задач invr.task/1: план → исполнение, режим auto/semi, журнал, очередь.\n"
+        "- Граф зависимостей DAG (§4.6): toposort, уровни, параллелизм, when/branch-условия;\n"
+        "  линейный режим сохранён (dispatch.mode, dispatch.parallel).\n"
         "- Адаптеры: Lab100, INVR-Tools, локальная LLM (Ollama), регион (region-spoof).\n"
         "- Инвентаризация (этап 0): карта «что умеем» по 4 репозиториям (factory inventory).\n"
         "- Квоты исполнителей Lab100 (этап 4): лимиты и расход (factory quotas, дашборд).\n"
@@ -425,6 +440,11 @@ def _release_body() -> str:
         "  глубокое слияние с глобальными, factory project init/status/show.\n"
         "- Внешние ИИ-провайдеры (§5.11): переключатель opencode/claude-code/cursor/\n"
         "  windsurf/void/zen/workai/multitool, адаптер external_agent, routing.<компетенция>.\n"
+        "- Самопочинка (self-heal): factory heal — прогон тестов, возврат копии к зелени,\n"
+        "  задача планировщика Windows, git-хук pre-push.\n"
+        "- Публикация и релиз: коммит/пуш завершённой работы только когда чужой работы нет\n"
+        "  (factory heal --commit --push, ожидание завершения); factory release собирает\n"
+        "  factory.exe + установщик + zip и выпускает релиз (тег и ассеты).\n"
         "- Windows: factory.exe + install.ps1 (PATH, меню «Пуск»), uninstall.ps1,\n"
         "  обёртка-шим scripts/factory.ps1 (§8.3), установщик Inno Setup\n"
         "  (factory-setup.exe — «Программы и компоненты», штатное удаление).\n"

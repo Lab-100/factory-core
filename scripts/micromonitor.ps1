@@ -177,8 +177,11 @@ function Start-Target {
     $txtAll.AppendText($header + [Environment]::NewLine)
     $lblStatus.Text = "Работает: $file $argLine"
     try {
+        # Окно консоли не показываем: у фабрики свой интерфейс, а вывод
+        # перенаправляется в файлы журнала (пустые окна раздражают).
         $script:proc = Start-Process -FilePath $file -ArgumentList $argLine -WorkingDirectory $workDir `
-            -RedirectStandardOutput $script:outFile -RedirectStandardError $script:errFile -PassThru
+            -WindowStyle Hidden -RedirectStandardOutput $script:outFile `
+            -RedirectStandardError $script:errFile -PassThru
     }
     catch {
         Write-MonitorLine -Stream 'stderr' -Text "не удалось запустить: $($_.Exception.Message)"

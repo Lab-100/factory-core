@@ -88,18 +88,25 @@ def _parse_multipart(body: bytes, content_type: str) -> tuple[str, list[tuple[st
 
 _TEMPLATE = """<!doctype html>
 <html lang="{{lang}}"><head><meta charset="utf-8">
+<base target="_self">
 <title>{{t_title}}</title>
 <style>
- body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1115;color:#e6e6e6}
+ :root{--fs:14px}
+ html{font-size:var(--fs)}
+ body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1115;color:#e6e6e6;font-size:1rem}
  header{padding:16px 24px;background:#161a22;border-bottom:1px solid #262b36}
- h1{margin:0;font-size:18px}
+ h1{margin:0;font-size:1.3rem}
  main{padding:24px;display:grid;gap:24px;max-width:1100px;margin:0 auto}
  section{background:#161a22;border:1px solid #262b36;border-radius:10px;padding:16px}
- table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #262b36}
+ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #262b36;vertical-align:top}
+ th{position:relative;user-select:none}
+ td{overflow-wrap:anywhere}
+ th .rz{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:2}
+ th .rz:hover{background:#2d6cdf66}
  .on{color:#5ddc7d}.off{color:#e06c75}.wait{color:#e5c07b}
- button{background:#2d6cdf;border:0;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin:2px}
+ button{background:#2d6cdf;border:0;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin:2px;font-size:inherit}
  button.warn{background:#c0392b}
- textarea,input,select{background:#0f1115;color:#e6e6e6;border:1px solid #3a4250;border-radius:6px;padding:8px;width:100%}
+ textarea,input,select{background:#0f1115;color:#e6e6e6;border:1px solid #3a4250;border-radius:6px;padding:8px;width:100%;font-size:inherit;font-family:inherit}
  textarea{resize:vertical}
  label{display:inline-block;margin-right:12px;margin-top:8px}
  code{color:#9ad1ff}
@@ -126,6 +133,15 @@ _TEMPLATE = """<!doctype html>
  img.shot{max-width:100%;border:1px solid #262b36;border-radius:8px;margin-top:8px}
  .hint{color:#8b93a7;font-size:13px}
  a.btn{display:inline-block;background:#2d6cdf;color:#fff;padding:6px 10px;border-radius:6px;text-decoration:none;font-size:13px;margin:2px}
+ .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+ .tab{background:#0f1115;color:#9ad1ff;border:1px solid #262b36;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
+ .tab.on{background:#2d6cdf;color:#fff;border-color:#2d6cdf}
+ .pane{display:none}.pane.on{display:block}
+ .fsrow{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}
+ .fsrow input[type=range]{width:240px}
+ .fsval{color:#9ad1ff;min-width:70px}
+ .kvs{display:grid;grid-template-columns:minmax(130px,auto) 1fr;gap:6px 16px;font-size:14px}
+ .kvs b{color:#9ad1ff;font-weight:500}
 </style></head><body>
 <header><h1>{{t_title}}</h1><nav id="nav"></nav></header>
 <main>
@@ -152,15 +168,15 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_jobs}}</h2><div id="jobs"></div></section>
  <section><h2>{{t_settings}}</h2><div id="settings"></div></section>
  <section><h2>{{t_project}}</h2><div id="project"></div></section>
- <section><h2>{{t_providers}}</h2><div id="providers"></div></section>
+ <section><h2>{{t_providers}}</h2><div id="providers"></div><p class="hint" id="provHint"></p></section>
  <section><h2>{{t_dynamic_domains}}</h2><div id="domains"></div></section>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
  <section><h2>{{t_infra}}</h2><div id="infra"></div></section>
  <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
- <section><h2>{{t_doctor}}</h2><div id="doctor"></div></section>
- <section><h2>{{t_arsenal}}</h2><div id="arsenal"></div></section>
+ <section><h2>{{t_doctor}}</h2><div class="hint" id="doctorSum"></div><div id="doctor"></div></section>
+ <section><h2>{{t_arsenal}}</h2><div class="hint" id="arsenalSum"></div><div id="arsenal"></div></section>
  <section><h2>{{t_logs}}</h2><div id="logs"></div></section>
 </main>
 <script>
@@ -185,9 +201,98 @@ const T={
  nav:'{{t_web_nav}}',infraShot:'{{t_infra_shot}}',infraEmpty:'{{t_infra_empty}}',
  infraNodes:'{{t_infra_nodes}}',infraEvents:'{{t_infra_events}}',infraCand:'{{t_infra_candidates}}',
  infraNoCand:'{{t_infra_no_candidates}}',logsFiltered:'{{t_logs_filtered}}',ledgerEmpty:'{{t_ledger_empty}}',
- roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}'
+ roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}',
+ lang:'{{t_lang}}',tabUi:'{{t_tab_ui}}',tabAuto:'{{t_tab_auto}}',tabNet:'{{t_tab_net}}',tabService:'{{t_tab_service}}',fontSize:'{{t_font_size}}',save:'{{t_save}}',
+ tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+/* --- окна: одно окно, новые вкладки не создаём --- */
+window.open=function(){return null};
+document.addEventListener('click',function(e){
+ const a=e.target.closest&&e.target.closest('a');
+ if(a&&(a.target==='_blank'||a.target==='_new')) e.preventDefault();
+},true);
+document.addEventListener('auxclick',function(e){if(e.button===1)e.preventDefault()},true);
+/* --- размер шрифта --- */
+const FS_KEY='factory.font_size';
+function applyFontSize(px,save){document.documentElement.style.setProperty('--fs',px+'px');if(save!==false)localStorage.setItem(FS_KEY,String(px))}
+function currentFontSize(){const v=parseInt(localStorage.getItem(FS_KEY)||'0',10);return v||14}
+function restoreFontSize(){applyFontSize(currentFontSize(),false)}
+/* --- точечное обновление: меняем только то, что изменилось --- */
+function setTxt(el,v){if(!el)return;const s=String(v==null?'':v);if(el.textContent!==s)el.textContent=s}
+function normCells(cells){return cells.map(c=>(typeof c==='string'?{h:c}:c))}
+function ensureTable(box,heads,store){
+ let tbl=box.querySelector('table[data-fx]');
+ if(tbl&&tbl.dataset.cols===String(heads.length)){
+  const th=tbl.querySelectorAll('thead th');
+  heads.forEach((h,i)=>{if(th[i])setTxt(th[i],h)});
+  return tbl;
+ }
+ box.innerHTML='<table data-fx="1" data-cols="'+heads.length+'"><colgroup>'+
+  heads.map(()=>'<col>').join('')+'</colgroup><thead><tr>'+
+  heads.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody></tbody></table>';
+ box._fxHtml=null;
+ tbl=box.querySelector('table');
+ makeResizable(tbl,store);
+ return tbl;
+}
+function patchRows(tbody,items,keyOf,cellsOf){
+ const rows=tbody._rows||(tbody._rows=new Map());
+ const alive=new Set();
+ let anchor=tbody.firstElementChild;
+ for(const item of items){
+  const k=String(keyOf(item));
+  let tr=rows.get(k);
+  const cells=normCells(cellsOf(item));
+  if(!tr){
+   tr=document.createElement('tr');
+   tr.innerHTML=cells.map(()=>'<td></td>').join('');
+   rows.set(k,tr);
+  }
+  cells.forEach((c,i)=>{
+   const td=tr.children[i];
+   if(!td) return;
+   const old=tr._norm&&tr._norm[i];
+   if(!old||old.h!==c.h) td.innerHTML=c.h;
+   if(c.c!=null&&td.className!==c.c) td.className=c.c;
+  });
+  tr._norm=cells;
+  alive.add(k);
+  if(anchor===tr) anchor=anchor.nextElementSibling;
+  else tbody.insertBefore(tr,anchor);
+ }
+ for(const entry of rows) if(!alive.has(entry[0])){entry[1].remove();rows.delete(entry[0])}
+}
+function makeResizable(tbl,store){
+ const cols=[...tbl.querySelectorAll('colgroup col')];
+ const heads=[...tbl.querySelectorAll('thead th')];
+ if(store){
+  let saved=[];
+  try{saved=JSON.parse(localStorage.getItem(store)||'[]')}catch(e){saved=[]}
+  saved.forEach((w,i)=>{if(cols[i]&&w)cols[i].style.width=w+'px'});
+  if(saved.length)tbl.style.tableLayout='fixed';
+ }
+ heads.forEach((th,i)=>{
+  if(i>=cols.length-1||th.querySelector('.rz')) return;
+  const handle=document.createElement('div');
+  handle.className='rz';
+  handle.title='тянуть — ширина столбца';
+  handle.addEventListener('mousedown',e=>{
+   e.preventDefault();e.stopPropagation();
+   const x0=e.clientX,w0=cols[i].getBoundingClientRect().width;
+   const move=ev=>{tbl.style.tableLayout='fixed';cols[i].style.width=Math.max(40,Math.round(w0+ev.clientX-x0))+'px'};
+   const stop=()=>{
+    document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',stop);
+    localStorage.setItem(store,JSON.stringify(cols.map(c=>Math.round(c.getBoundingClientRect().width))));
+   };
+   document.addEventListener('mousemove',move);document.addEventListener('mouseup',stop);
+  });
+  th.appendChild(handle);
+ });
+}
+function boxEmpty(box,html){box.innerHTML=html;box._fxHtml=null}
+function setBlock(box,html){if(!box||box._fxHtml===html)return;box._fxHtml=html;box.innerHTML=html}
+restoreFontSize();
 async function j(u){const r=await fetch(u);return r.json()}
 async function toggle(name,enabled){await fetch(`/api/domains/toggle?name=${encodeURIComponent(name)}&enabled=${enabled}`);load()}
 async function setSetting(k,v){await fetch(`/api/settings/set?key=${encodeURIComponent(k)}&value=${encodeURIComponent(v)}`);load()}
@@ -236,14 +341,114 @@ async function newSession(){
 async function loadSessions(){
  const r=await j('/api/sessions');
  const items=r.sessions||[];
- document.getElementById('sessions').innerHTML=
-  '<table><tr><th>id</th><th>'+T.thTitle+'</th><th>'+T.thCount+'</th><th>'+T.thUpdated+'</th><th></th></tr>'+
-  items.map(s=>{
-   const openBtn='<button onclick="openSession(\\''+s.id+'\\')">'+T.sesOpen+'</button>';
-   const delBtn='<button class="warn" onclick="delSession(\\''+s.id+'\\')">'+T.sesDel+'</button>';
-   return '<tr><td><code>'+esc(s.id)+'</code></td><td>'+esc(s.title)+'</td><td>'+s.count+'</td>'+
-    '<td><small>'+esc((s.updated||'').slice(0,19))+'</small></td><td>'+openBtn+' '+delBtn+'</td></tr>';
-  }).join('')+'</table>';
+ const box=document.getElementById('sessions');
+ if(!items.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,['id',T.thTitle,T.thCount,T.thUpdated,''],'fx.sessions');
+ patchRows(tbl.tBodies[0],items,s=>s.id,s=>[
+  {h:'<code>'+esc(s.id)+'</code>'},
+  {h:esc(s.title||'')},
+  {h:String(s.count==null?0:s.count)},
+  {h:'<small>'+esc((s.updated||'').slice(0,19))+'</small>'},
+  {h:'<button onclick="openSession(&#39;'+esc(s.id)+'&#39;)">'+esc(T.sesOpen)+'</button> '+
+    '<button class="warn" onclick="delSession(&#39;'+esc(s.id)+'&#39;)">'+esc(T.sesDel)+'</button>'}
+ ]);
+}
+
+async function load(){
+ const s=await j('/api/settings');
+ if(!localStorage.getItem(FS_KEY)&&s.font_size) applyFontSize(parseInt(s.font_size,10)||14,false);
+ const fs=currentFontSize();
+ const box=document.getElementById('settings');
+ setBlock(box,
+  '<div class="tabs" id="setTabs">'+
+   '<button class="tab" data-pane="pane-ui">'+esc(T.tabUi)+'</button>'+
+   '<button class="tab" data-pane="pane-auto">'+esc(T.tabAuto)+'</button>'+
+   '<button class="tab" data-pane="pane-net">'+esc(T.tabNet)+'</button>'+
+   '<button class="tab" data-pane="pane-service">'+esc(T.tabService)+'</button>'+
+  '</div>'+
+  '<div class="pane" id="pane-ui">'+
+   '<p class="fsrow">'+esc(T.fontSize)+
+    '<input type="range" id="fsRange" min="11" max="26" step="1" value="'+fs+'" oninput="previewFont(this.value)">'+
+    '<span class="fsval" id="fsVal">'+fs+' px</span>'+
+    '<button onclick="saveFontSize()">'+esc(T.save)+'</button></p>'+
+   '<p>'+esc(T.uiLabel)+
+    ' <button onclick="setSetting(&#39;ui.mode&#39;,&#39;cli&#39;)">cli</button>'+
+    ' <button onclick="setSetting(&#39;ui.mode&#39;,&#39;web&#39;)">web</button>'+
+    ' <button onclick="setSetting(&#39;ui.mode&#39;,&#39;tray&#39;)">tray</button>'+
+    ' <button onclick="setSetting(&#39;ui.mode&#39;,&#39;all&#39;)">all</button>'+
+    ' &nbsp;'+esc(T.current)+' <b>'+esc(s.ui)+'</b></p>'+
+   '<p><label>'+esc(T.lang)+' <select id="langSel" onchange="setLang(this.value)">'+
+    '<option value="ru">Русский</option><option value="en">English</option><option value="zh">中文</option>'+
+   '</select></label></p></div>'+
+  '<div class="pane" id="pane-auto">'+
+   '<p>'+esc(T.automation)+
+    ' <button onclick="setSetting(&#39;automation.mode&#39;,&#39;auto&#39;)">auto</button>'+
+    ' <button onclick="setSetting(&#39;automation.mode&#39;,&#39;semi&#39;)">semi</button>'+
+    ' &nbsp;'+esc(T.current)+' <b>'+esc(s.automation)+'</b></p>'+
+   '<div class="kvs"><b>'+esc(T.profile)+'</b><span><code>'+esc(s.active_profile)+'</code></span></div></div>'+
+  '<div class="pane" id="pane-net">'+
+   '<div class="kvs"><b>'+esc(T.tHost)+'</b><span><code>'+esc(s.web_host||'127.0.0.1')+'</code></span>'+
+   '<b>'+esc(T.tPort)+'</b><span><code>'+esc(String(s.web_port||''))+'</code></span>'+
+   '<b>'+esc(T.lang)+'</b><span>'+esc(s.lang||'ru')+'</span></div>'+
+   '<p><button onclick="savePort()">'+esc(T.save)+'</button></p>'+
+   '<p><label>'+esc(T.tPort)+' <input id="portInput" style="width:120px" value="'+esc(String(s.web_port||''))+'"></label></p></div>'+
+  '<div class="pane" id="pane-service">'+
+   '<p><button onclick="refreshAll()">'+esc(T.tRefreshAll)+'</button>'+
+   ' <button onclick="showLogs(&#39;factory&#39;)">'+esc(T.logsPh||'Журналы')+'</button></p>'+
+   '<p class="hint">'+esc(T.tServiceHint)+'</p></div>');
+ const sel=document.getElementById('langSel');
+ if(sel) sel.value=(s.lang||'ru');
+ const range=document.getElementById('fsRange');
+ if(range) range.value=fs;
+ document.querySelectorAll('#setTabs .tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+   document.querySelectorAll('#setTabs .tab').forEach(x=>x.classList.remove('on'));
+   document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+   tab.classList.add('on');
+   const pane=document.getElementById(tab.dataset.pane);
+   if(pane) pane.classList.add('on');
+   localStorage.setItem('factory.settab',tab.dataset.pane);
+  });
+ });
+ const last=localStorage.getItem('factory.settab');
+ const wanted=last?document.querySelector('#setTabs .tab[data-pane="'+last+'"]'):null;
+ const first=document.querySelector('#setTabs .tab');
+ const active=wanted||first;
+ if(active) active.click();
+ const d=await j('/api/domains');
+ const boxD=document.getElementById('domains');
+ const doms=d.domains||[];
+ if(!doms.length){boxEmpty(boxD,'<p>'+esc(T.noData)+'</p>')}
+ else{
+  const tblD=ensureTable(boxD,[T.thName,T.thPriority,T.thCaps,T.thState],'fx.domains');
+  patchRows(tblD.tBodies[0],doms,x=>x.name,x=>[
+   {h:esc(x.name)+'<br><small>'+esc(x.title||'')+'</small>'},
+   {h:String(x.priority)},
+   {h:(x.capabilities||[]).map(esc).join(', ')},
+   {h:(x.enabled?T.on:T.off)+' <button onclick="toggle(&#39;'+esc(x.name)+'&#39;,'+(!x.enabled)+')">'+
+     (x.enabled?T.off:T.on)+'</button>',c:x.enabled?'on':'off'}
+  ]);
+ }
+ const l=await j('/api/ledger');
+ loadLedger(l);
+ buildNav();
+}
+function previewFont(v){applyFontSize(parseInt(v,10)||14,false);setTxt(document.getElementById('fsVal'),v+' px')}
+function saveFontSize(){
+ const range=document.getElementById('fsRange');
+ if(!range) return;
+ const v=parseInt(range.value,10)||14;
+ applyFontSize(v,true);
+ fetch('/api/settings/set?key='+encodeURIComponent('ui.font_size')+'&value='+encodeURIComponent(v));
+}
+function savePort(){
+ const input=document.getElementById('portInput');
+ if(!input) return;
+ setSetting('ui.web.port',input.value.trim());
+}
+function refreshAll(){
+ load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();
+ loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 }
 async function openSession(id){
  currentSession=id;
@@ -277,51 +482,32 @@ async function approveJob(id,ok){
 }
 async function loadJobs(){
  const r=await j('/api/jobs');
- document.getElementById('jobs').innerHTML='<table><tr><th>id</th><th>'+T.thStatus+'</th><th>'+T.thGoal+'</th><th>'+T.thDomain+'</th><th></th></tr>'+
-  r.jobs.map(x=>{
-   let actions='';
-   if(x.awaiting) actions=`<button onclick="approveJob('${x.id}',true)">${T.appr}</button> <button class="warn" onclick="approveJob('${x.id}',false)">${T.skip}</button>`;
-   const exp=`<a class="btn" href="/api/export?kind=job&id=${x.id}&format=md" download>md</a>`+
-    `<a class="btn" href="/api/export?kind=job&id=${x.id}&format=json" download>json</a>`+
-    `<a class="btn" href="/api/export?kind=job&id=${x.id}&format=zip" download>zip</a>`;
-   actions=(actions?actions+' ':'')+exp;
-   const cls=x.status==='awaiting-approval'?'wait':(x.status==='done'?'on':(x.status==='running'?'wait':'off'));
-   return `<tr><td>${x.id}</td><td class="${cls}">${x.status}</td><td>${esc(x.goal).slice(0,60)}</td><td>${x.domain||'auto'}</td><td>${actions}</td></tr>`;
-  }).join('')+'</table>';
-}
-async function load(){
- const s=await j('/api/settings');
- document.getElementById('settings').innerHTML =
-  `<p>${T.profile} <code>${esc(s.active_profile)}</code></p>
-   <p>${T.automation}
-     <button onclick="setSetting('automation.mode','auto')">auto</button>
-     <button onclick="setSetting('automation.mode','semi')">semi</button>
-     &nbsp;${T.current} <b>${esc(s.automation)}</b></p>
-   <p>${T.uiLabel}
-     <button onclick="setSetting('ui.mode','cli')">cli</button>
-     <button onclick="setSetting('ui.mode','web')">web</button>
-     <button onclick="setSetting('ui.mode','tray')">tray</button>
-     <button onclick="setSetting('ui.mode','all')">all</button>
-     &nbsp;${T.current} <b>${esc(s.ui)}</b></p>
-   <p><label>{{t_lang}} <select id="langSel" onchange="setLang(this.value)">
-     <option value="ru">Русский</option><option value="en">English</option><option value="zh">中文</option>
-   </select></label></p>`;
- if(document.getElementById('langSel')) document.getElementById('langSel').value=(s.lang||'ru');
- const d=await j('/api/domains');
- document.getElementById('domains').innerHTML='<table><tr><th>'+T.thName+'</th><th>'+T.thPriority+'</th><th>'+T.thCaps+'</th><th>'+T.thState+'</th></tr>'+
-  d.domains.map(x=>`<tr><td>${esc(x.name)}<br><small>${esc(x.title||'')}</small></td><td>${x.priority}</td>
-   <td>${x.capabilities.map(esc).join(', ')}</td>
-   <td class="${x.enabled?'on':'off'}">${x.enabled?T.on:T.off}
-   <button onclick="toggle('${x.name}',${!x.enabled})">${x.enabled?T.off:T.on}</button></td></tr>`).join('')+'</table>';
- const l=await j('/api/ledger');
- loadLedger(l);
- buildNav();
+ const box=document.getElementById('jobs');
+ const jobs=r.jobs||[];
+ if(!jobs.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,['id',T.thStatus,T.thGoal,T.thDomain,''],'fx.jobs');
+ patchRows(tbl.tBodies[0],jobs,x=>x.id,x=>{
+  let actions='';
+  if(x.awaiting) actions='<button onclick="approveJob(&#39;'+esc(x.id)+'&#39;,true)">'+esc(T.appr)+'</button> '+
+   '<button class="warn" onclick="approveJob(&#39;'+esc(x.id)+'&#39;,false)">'+esc(T.skip)+'</button>';
+  actions+='<a class="btn" href="/api/export?kind=job&id='+esc(x.id)+'&format=md" download>md</a>'+
+   '<a class="btn" href="/api/export?kind=job&id='+esc(x.id)+'&format=json" download>json</a>'+
+   '<a class="btn" href="/api/export?kind=job&id='+esc(x.id)+'&format=zip" download>zip</a>';
+  const cls=x.status==='awaiting-approval'?'wait':(x.status==='done'?'on':(x.status==='running'?'wait':'off'));
+  return [
+   {h:esc(String(x.id))},
+   {h:esc(String(x.status||'')),c:cls},
+   {h:esc(String(x.goal||'')).slice(0,60)},
+   {h:esc(String(x.domain||'auto'))},
+   {h:actions}
+  ];
+ });
 }
 async function loadLedger(payload){
  const l=payload||await j('/api/ledger');
  const events=l.events||[];
  const box=document.getElementById('ledger');
- if(!events.length){box.innerHTML='<p class="hint">'+esc(T.ledgerEmpty)+'</p>';return}
+ if(!events.length){setBlock(box,'<p class="hint">'+esc(T.ledgerEmpty)+'</p>');return}
  const rows=events.map(e=>{
   const ts=esc(String(e.ts||e.time||'').slice(0,19));
   const kind=esc(String(e.kind||e.event||e.action||'—'));
@@ -331,7 +517,7 @@ async function loadLedger(payload){
    '<td><small>'+ts+'</small></td><td>'+kind+'</td><td>'+task+'</td><td>'+ok+'</td></tr>'+
    '<tr class="dump" style="display:none"><td colspan="4"><pre>'+esc(JSON.stringify(e))+'</pre></td></tr>';
  }).join('');
- box.innerHTML='<table><tr><th>'+T.thUpdated+'</th><th>'+T.thStatus+'</th><th>'+T.thGoal+'</th><th></th></tr>'+rows+'</table>';
+ setBlock(box,'<table><tr><th>'+T.thUpdated+'</th><th>'+T.thStatus+'</th><th>'+T.thGoal+'</th><th></th></tr>'+rows+'</table>');
 }
 function toggleDump(row){
  const next=row.nextElementSibling;
@@ -382,24 +568,30 @@ function fmtSec(value){
 }
 async function loadProject(){
  const p=await j('/api/project');
- const box=document.getElementById('project');
- box.innerHTML= p.path
+ setBlock(document.getElementById('project'), p.path
   ? '<p><code>'+esc(p.path)+'</code></p><pre>'+esc(JSON.stringify(p.data,null,2))+'</pre>'
-  : '<p>'+esc(T.projNone)+'</p>';
+  : '<p>'+esc(T.projNone)+'</p>');
 }
 async function loadProviders(){
  const r=await j('/api/providers');
  const items=r.providers||[];
  const box=document.getElementById('providers');
- if(!items.length){box.innerHTML='<p>'+T.noData+'</p>';return}
- box.innerHTML='<table><tr><th>'+T.thName+'</th><th>'+T.thTitle+'</th><th>'+T.provAvail+'</th><th>'+T.provEnabled+'</th><th></th></tr>'+
-  items.map(p=>{
-   const cmd=p.command?'<br><small><code>'+esc(p.command)+'</code></small>':'';
-   const btn=p.enabled
-    ?'<button class="warn" onclick="toggleProvider(\\''+esc(p.name)+'\\',false)">'+T.provOff+'</button>'
-    :'<button onclick="toggleProvider(\\''+esc(p.name)+'\\',true)">'+T.provOn+'</button>';
-   return '<tr><td><code>'+esc(p.name)+'</code></td><td>'+esc(p.title)+cmd+'</td><td class="'+(p.available?'on':'off')+'">'+(p.available?T.on:T.off)+'</td><td class="'+(p.enabled?'on':'off')+'">'+(p.enabled?T.on:T.off)+'</td><td>'+btn+'</td></tr>';
-  }).join('')+'</table><p><small>'+esc(T.provHint)+'</small></p>';
+ setTxt(document.getElementById('provHint'),T.provHint||'');
+ if(!items.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,[T.thName,T.thTitle,T.provAvail,T.provEnabled,''],'fx.providers');
+ patchRows(tbl.tBodies[0],items,p=>p.name,p=>{
+  const cmd=p.command?'<br><small><code>'+esc(p.command)+'</code></small>':'';
+  const btn=p.enabled
+   ?'<button class="warn" onclick="toggleProvider(&#39;'+esc(p.name)+'&#39;,false)">'+esc(T.provOff)+'</button>'
+   :'<button onclick="toggleProvider(&#39;'+esc(p.name)+'&#39;,true)">'+esc(T.provOn)+'</button>';
+  return [
+   {h:'<code>'+esc(p.name)+'</code>'},
+   {h:esc(p.title||'')+cmd},
+   {h:p.available?T.on:T.off,c:p.available?'on':'off'},
+   {h:p.enabled?T.on:T.off,c:p.enabled?'on':'off'},
+   {h:btn}
+  ];
+ });
 }
 async function toggleProvider(name,enabled){
  await fetch('/api/providers/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,enabled})});
@@ -408,65 +600,88 @@ async function toggleProvider(name,enabled){
 async function loadQuotas(){
  const q=await j('/api/quotas');
  const box=document.getElementById('quotas');
- if(q.available===false){box.innerHTML='<p>'+esc(q.note||'')+'</p>';return}
+ if(q.available===false){setBlock(box,'<p>'+esc(q.note||'')+'</p>');return}
  const rows=Object.entries(q.providers||{});
- if(!rows.length){box.innerHTML='<p>'+T.noData+'</p>';return}
- box.innerHTML='<table><tr><th>'+T.thProvider+'</th><th>'+T.thWindow+'</th><th>'+T.thLimit+'</th><th>'+T.thUsed+'</th><th>'+T.thRemaining+'</th></tr>'+
-  rows.map(([p,r])=>`<tr><td>${esc(p)}</td><td>${esc(r.window)}</td><td>${r.limit==null?'∞':r.limit}</td><td>${r.used}</td><td>${r.remaining==null?'∞':r.remaining}${r.percent==null?'':' ('+r.percent+'%)'}</td></tr>`).join('')+'</table>';
+ if(!rows.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,[T.thProvider,T.thWindow,T.thLimit,T.thUsed,T.thRemaining],'fx.quotas');
+ patchRows(tbl.tBodies[0],rows,pair=>pair[0],pair=>{
+  const r=pair[1]||{};
+  return [
+   {h:esc(pair[0])},
+   {h:esc(r.window||'')},
+   {h:r.limit==null?'∞':String(r.limit)},
+   {h:String(r.used==null?0:r.used)},
+   {h:(r.remaining==null?'∞':String(r.remaining))+(r.percent==null?'':' ('+r.percent+'%)')}
+  ];
+ });
 }
 async function loadMonitoring(){
  const inv=await j('/api/inventory');
  const s=(inv&&inv.summary)||{};
- document.getElementById('monitor').innerHTML='<p>'+esc(T.invSummary
-  .replace('{present}',s.repos_present??0).replace('{total}',s.repos_total??0)
-  .replace('{tools}',s.tools??0).replace('{providers}',s.providers??0))+'</p>';
+ setBlock(document.getElementById('monitor'),'<p>'+esc(T.invSummary
+  .replace('{present}',s.repos_present==null?0:s.repos_present).replace('{total}',s.repos_total==null?0:s.repos_total)
+  .replace('{tools}',s.tools==null?0:s.tools).replace('{providers}',s.providers==null?0:s.providers))+'</p>');
 }
 async function loadCatalog(){
  const c=await j('/api/catalog');
  const box=document.getElementById('catalog');
  const items=c.items||[];
- if(!items.length){box.innerHTML='<p>'+esc(T.catalogEmpty)+'</p>';return}
- box.innerHTML='<table><tr><th>'+T.thDomain+'</th><th>'+T.thGoal+'</th><th>'+T.thUpdated+'</th><th>'+T.thState+'</th></tr>'+
-  items.map(x=>`<tr><td>${esc(x.domain||'-')}/<code>${esc(x.name)}</code></td><td>${esc(x.goal).slice(0,60)}</td>
-   <td><small>${esc((x.updated||'').slice(0,19))}</small></td>
-   <td class="${x.ok?'on':'off'}">${x.ok?T.on:T.off}</td></tr>`).join('')+'</table>';
+ if(!items.length){boxEmpty(box,'<p>'+esc(T.catalogEmpty)+'</p>');return}
+ const tbl=ensureTable(box,[T.thDomain,T.thGoal,T.thUpdated,T.thState],'fx.catalog');
+ patchRows(tbl.tBodies[0],items,x=>(x.domain||'-')+'/'+x.name,x=>[
+  {h:esc(x.domain||'-')+'/<code>'+esc(x.name)+'</code>'},
+  {h:esc(String(x.goal||'')).slice(0,60)},
+  {h:'<small>'+esc((x.updated||'').slice(0,19))+'</small>'},
+  {h:x.ok?T.on:T.off,c:x.ok?'on':'off'}
+ ]);
 }
 async function loadDoctor(){
  const d=await j('/api/doctor');
  const adpts=d.adapters||[], ints=d.integrations||[];
  const ready=adpts.filter(x=>x.available).length;
  const readyInt=ints.filter(x=>x.available).length;
- const deco=(x,kind)=>{
+ setTxt(document.getElementById('doctorSum'),T.doctorSummary
+  .replace('{ready}',ready).replace('{total}',adpts.length)
+  .replace('{iready}',readyInt).replace('{itotal}',ints.length));
+ const all=adpts.map(x=>[x,'adapter']).concat(ints.map(x=>[x,'integration']));
+ const box=document.getElementById('doctor');
+ if(!all.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,[T.thName,T.thState],'fx.doctor');
+ patchRows(tbl.tBodies[0],all,pair=>String(pair[0].adapter||pair[0].integration||''),pair=>{
+  const x=pair[0], kind=pair[1];
   const name=x.adapter||x.integration||'—';
   const skip=['adapter','integration','available'];
-  const details=Object.entries(x).filter(([k,v])=>skip.indexOf(k)<0&&v!==null&&v!==''&&!(Array.isArray(v)&&!v.length))
-   .map(([k,v])=>'<div><small><b>'+esc(k)+'</b>: '+esc(Array.isArray(v)?v.join(', '):String(v))+'</small></div>').join('');
-  return '<tr class="clickable" onclick="showLogs(\\''+esc(name)+'\\')">'+
-   '<td><code>'+esc(name)+'</code> <small>'+kind+'</small>'+details+'</td>'+
-   '<td class="'+(x.available?'on':'off')+'">'+(x.available?T.on:T.off)+'</td></tr>';
- };
- document.getElementById('doctor').innerHTML=
-  '<p>'+esc(T.doctorSummary
-   .replace('{ready}',ready).replace('{total}',adpts.length)
-   .replace('{iready}',readyInt).replace('{itotal}',ints.length))+'</p>'+
-  '<table><tr><th>'+T.thName+'</th><th>'+T.thState+'</th></tr>'+
-  adpts.map(x=>deco(x,'adapter')).join('')+ints.map(x=>deco(x,'integration')).join('')+'</table>';
+  const details=Object.entries(x).filter(e=>skip.indexOf(e[0])<0&&e[1]!==null&&e[1]!==''&&!(Array.isArray(e[1])&&!e[1].length))
+   .map(e=>'<div><small><b>'+esc(e[0])+'</b>: '+esc(Array.isArray(e[1])?e[1].join(', '):String(e[1]))+'</small></div>').join('');
+  return [
+   {h:'<code class="clickable" onclick="showLogs(&#39;'+esc(name)+'&#39;)">'+esc(name)+'</code> <small>'+kind+'</small>'+details},
+   {h:x.available?T.on:T.off,c:x.available?'on':'off'}
+  ];
+ });
 }
 async function loadArsenal(){
  const a=await j('/api/arsenal');
  const s=a.summary||{};
  const cls={active:'on','need-guard':'wait',fault:'off'};
- const rows=(a.nodes||[]).map(n=>{
-  const canAct=n.class==='service'&&n.meta&&n.meta.start&&n.meta.start.length;
-  const ctl=canAct?`<button onclick="act('${n.id}','restart')">↻</button>`:'';
-  return `<tr class="clickable" onclick="showLogs('${esc(n.name)}','factory.supervisor')"><td><code>${esc(n.name)}</code></td><td>${esc(n.class)}</td>`+
-   `<td class="${cls[n.state]||''}">${esc(n.state)}</td><td>${esc(n.owner)}</td>`+
-   `<td><small>${esc(n.detail||'')}</small></td><td>${ctl}</td></tr>`;
- }).join('');
- document.getElementById('arsenal').innerHTML=
-  '<p>'+esc(T.arsenalSummary.replace('{working}',s.working??0).replace('{total}',s.total??0)
-    .replace('{attention}',s.attention??0).replace('{mode}',a.mode||''))+'</p>'+
-  '<table><tr><th>'+T.thName+'</th><th>'+T.thClass+'</th><th>'+T.thState+'</th><th>'+T.thOwner+'</th><th>'+T.thDetail+'</th><th></th></tr>'+rows+'</table>';
+ setTxt(document.getElementById('arsenalSum'),T.arsenalSummary
+  .replace('{working}',s.working==null?0:s.working).replace('{total}',s.total==null?0:s.total)
+  .replace('{attention}',s.attention==null?0:s.attention).replace('{mode}',a.mode||''));
+ const box=document.getElementById('arsenal');
+ const nodes=a.nodes||[];
+ if(!nodes.length){boxEmpty(box,'<p>'+esc(T.noData)+'</p>');return}
+ const tbl=ensureTable(box,[T.thName,T.thClass,T.thState,T.thOwner,T.thDetail,''],'fx.arsenal');
+ patchRows(tbl.tBodies[0],nodes,n=>n.id,n=>{
+  const canAct=n['class']==='service'&&n.meta&&n.meta.start&&n.meta.start.length;
+  const ctl=canAct?'<button onclick="act(&#39;'+esc(n.id)+'&#39;,&#39;restart&#39;)">↻</button>':'';
+  return [
+   {h:'<code class="clickable" onclick="showLogs(&#39;'+esc(n.name)+'&#39;)">'+esc(n.name)+'</code>'},
+   {h:esc(n['class'])},
+   {h:esc(n.state),c:cls[n.state]||''},
+   {h:esc(n.owner||'')},
+   {h:'<small>'+esc(n.detail||'')+'</small>'},
+   {h:ctl}
+  ];
+ });
 }
 async function act(id,action){
  await fetch('/api/supervise/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({element:id,action})});
@@ -477,14 +692,28 @@ async function loadLogs(){
  const src=sel?sel.value:'';
  const inp=document.getElementById('logEl');
  const el=inp?inp.value:'';
- const r=await j(`/api/logs?limit=200${src?('&source='+encodeURIComponent(src)):''}${el?('&element='+encodeURIComponent(el)):''}`);
- const opts=(r.sources||[]).map(x=>`<option value="${esc(x.id)}"${src===x.id?' selected':''}>${esc(x.name)}${x.available?'':' (—)'}</option>`).join('');
- const title=el?('<b>'+esc(T.logsFiltered.replace('{name}',el))+'</b> '):'';
- document.getElementById('logs').innerHTML=
-  '<p>'+title+'<select id="logSrc" onchange="loadLogs()"><option value="">'+T.logsAll+'</option>'+opts+'</select> '+
-  '<input id="logEl" style="width:auto" placeholder="'+T.logsPh+'" value="'+esc(el)+'"> '+
-  '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
-  '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
+ const r=await j('/api/logs?limit=200'+(src?('&source='+encodeURIComponent(src)):'')+(el?('&element='+encodeURIComponent(el)):''));
+ const box=document.getElementById('logs');
+ if(!box.querySelector('.logctl')){
+  box.innerHTML='<p class="logctl"><span id="logTitle"></span>'+
+   '<select id="logSrc" onchange="loadLogs()"><option value="">'+esc(T.logsAll)+'</option></select> '+
+   '<input id="logEl" style="width:auto" placeholder="'+esc(T.logsPh)+'"> '+
+   '<button onclick="loadLogs()">'+esc(T.refresh)+'</button></p>'+
+   '<pre id="logPre" style="max-height:320px;overflow:auto"></pre>';
+  box._fxHtml=null;
+ }
+ const sel2=document.getElementById('logSrc');
+ const opts=(r.sources||[]).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+(x.available?'':' (—)')+'</option>').join('');
+ if(sel2&&sel2._sig!==opts){
+  sel2.innerHTML='<option value="">'+esc(T.logsAll)+'</option>'+opts;
+  sel2._sig=opts;
+ }
+ if(sel2) sel2.value=src;
+ const inp2=document.getElementById('logEl');
+ if(inp2) inp2.value=el;
+ setTxt(document.getElementById('logTitle'),el?esc(T.logsFiltered.replace('{name}',el)):'');
+ const pre=document.getElementById('logPre');
+ if(pre) pre.textContent=(r.lines||[]).map(x=>'['+x.source+'] '+x.line).join(String.fromCharCode(10));
 }
 async function loadInfra(){
  const g=await j('/api/infra');
@@ -574,6 +803,16 @@ def _page(lang: str) -> str:
         "t_on": tr("web.on"),
         "t_off": tr("web.off"),
         "t_lang": tr("web.lang"),
+        "t_tab_ui": tr("web.tab_ui"),
+        "t_tab_auto": tr("web.tab_auto"),
+        "t_tab_net": tr("web.tab_net"),
+        "t_tab_service": tr("web.tab_service"),
+        "t_font_size": tr("web.font_size"),
+        "t_save": tr("web.save"),
+        "t_t_host": tr("web.t_host"),
+        "t_t_port": tr("web.t_port"),
+        "t_t_refresh_all": tr("web.t_refresh_all"),
+        "t_t_service_hint": tr("web.t_service_hint"),
         "t_quotas": tr("web.quotas"),
         "t_monitoring": tr("web.monitoring"),
         "t_th_provider": tr("web.th_provider"),
@@ -677,6 +916,9 @@ def _handler_class():
                     "automation": settings.automation,
                     "ui": settings.ui,
                     "lang": settings.lang,
+                    "font_size": settings.get("ui.font_size", ""),
+                    "web_host": settings.get("ui.web.host", "127.0.0.1"),
+                    "web_port": settings.get("ui.web.port", ""),
                     "data": settings.data,
                 })
             if path == "/api/settings/set":

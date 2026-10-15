@@ -154,9 +154,10 @@ class WebDashboardTest(unittest.TestCase):
         found = re.search(r"<script>(.*?)</script>", html, re.S)
         self.assertIsNotNone(found, "на странице нет скрипта")
         js = found.group(1)
-        # признак потерянного экранирования: onclick="имя(''  (должно быть \')
+        # кавычки в onclick задаются HTML-entity, поэтому ломающих ``(''`` быть не должно
         self.assertIsNone(re.search(r"onclick=\"\w+\(''", js))
-        self.assertIn("onclick=\"openSession(\\'", js)
+        self.assertIn("onclick=\"openSession(&#39;", js)
+        # и node --check подтверждает целостность синтаксиса
         node = shutil.which("node")
         if not node:
             self.skipTest("node недоступен: проверена только эвристика")

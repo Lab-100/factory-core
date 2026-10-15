@@ -62,6 +62,11 @@ class ShortcutTest(unittest.TestCase):
             self.assertEqual(command.count("Start-Process"), 1)
 
 
+def test_program_group_is_explicit(self) -> None:
+        # иначе ярлыки при обновлении уезжают в группу «(Default)»
+        self.assertIn("DefaultGroupName={#AppName}", ISS)
+
+
 class MonitorTest(unittest.TestCase):
     def test_target_started_hidden(self) -> None:
         self.assertIn("-WindowStyle Hidden", MONITOR)

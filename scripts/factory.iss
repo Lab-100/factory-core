@@ -7,7 +7,7 @@
 ; автозапуска и каталог в PATH удаляются вместе с программой.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.6"
+  #define AppVersion "0.4.7"
 #endif
 
 #define AppName "Фабрика Lab-100"
@@ -23,6 +23,7 @@ AppPublisherURL=https://github.com/Lab-100/factory-core
 AppSupportURL=https://github.com/Lab-100/factory-core
 AppUpdatesURL=https://github.com/Lab-100/factory-core
 DefaultDirName={localappdata}\Programs\FactoryLab100
+DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist

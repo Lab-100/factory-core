@@ -93,6 +93,35 @@ class InfraGraphTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("infra-graph", result["error"])
 
+    def test_snapshot_requires_ps1_shim(self) -> None:
+        """Одной ``.cmd``-обёртки мало: аргументы она не передаёт — честная ошибка."""
+        (self.root / "infra-graph.cmd").write_text("@echo off\n", encoding="utf-8")
+        result = infragraph.snapshot()
+        self.assertFalse(result["ok"])
+        self.assertIn("infra-graph.ps1", result["error"])
+
+    def test_snapshot_runs_ps1_with_shot_flag(self) -> None:
+        """Снимок запускает ``.ps1`` и передаёт ему ``-File`` и ``-Shot <png>``."""
+        (self.root / "infra-graph.ps1").write_text("# заглушка\n", encoding="utf-8")
+        captured: dict = {}
+
+        class _Proc:
+            returncode = 0
+            stdout = "готово"
+            stderr = ""
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            Path(argv[argv.index("-Shot") + 1]).write_bytes(b"PNG")
+            return _Proc()
+
+        with mock.patch("factory.infragraph.subprocess.run", fake_run):
+            result = infragraph.snapshot()
+        self.assertTrue(result["ok"], result.get("error"))
+        files = [a for a in captured["argv"] if a.endswith("infra-graph.ps1")]
+        self.assertEqual(len(files), 1, captured["argv"])
+        self.assertIn("-Shot", captured["argv"])
+
 
 if __name__ == "__main__":
     unittest.main()

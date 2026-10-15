@@ -34,6 +34,10 @@ DEFAULT_STATE = Path("monitor") / "state" / "nodes.json"
 #: Имя файла снимка графа (кладём рядом с состоянием).
 SHOT_NAME = "infra-graph.png"
 
+#: PowerShell-шим инструмента: ``.cmd``-обёртка аргументы не передаёт,
+#: поэтому снимок (``-Shot``) запускается только через ``.ps1``.
+SHIM_PS1 = "infra-graph.ps1"
+
 #: Порядок классов узлов для вывода (от ядра к инструментам по требованию).
 CLASS_ORDER = ("core", "service", "agent", "demand")
 
@@ -53,7 +57,9 @@ def tools_root(settings=None) -> Path | None:
     if not raw and settings is not None:
         raw = str(settings.get("adapters.invr_root", "") or "")
     if not raw:
-        return None
+        # штатное место склада инструментов, если ни переменная, ни настройка не заданы
+        home = Path.home() / ".devstation" / "tools"
+        return home if home.exists() else None
     path = Path(raw)
     return path if path.exists() else None
 
@@ -87,6 +93,15 @@ def shim(settings=None) -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def shim_ps1(settings=None) -> Path | None:
+    """PowerShell-шим ``infra-graph.ps1`` — принимает аргументы (``-Shot``)."""
+    base = tools_root(settings)
+    if base is None:
+        return None
+    candidate = base / SHIM_PS1
+    return candidate if candidate.exists() else None
 
 
 def _tail(path: Path, limit: int) -> list[str]:
@@ -202,10 +217,14 @@ def _age_sec(path: Path) -> int | None:
 
 
 def snapshot(settings=None, timeout: int = 240) -> dict:
-    """Отрисовать карту в PNG (offline-рендер ``infra-graph -Shot``)."""
-    script = shim(settings)
+    """Отрисовать карту в PNG (offline-рендер ``infra-graph -Shot``).
+
+    Запускается только ``.ps1``-шим: ``.cmd``-обёртка аргументов не передаёт.
+    """
+    script = shim_ps1(settings)
     if script is None:
-        return {"ok": False, "error": "инструмент infra-graph не найден в складе INVR"}
+        return {"ok": False,
+                "error": f"шим {SHIM_PS1} не найден в складе INVR"}
     target = shot_path(settings)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -23,6 +23,8 @@ mode = "all"
 lang = "ru"
 # Если оконный режим (pywebview) недоступен — открывать дашборд в браузере
 desktop_fallback_web = true
+# Разрешить несколько экземпляров интерфейса (false — только один)
+allow_multiple = false
 
 [monitor]
 # Микромонитор запуска: журнал всего вывода (пусто — state/monitor.log)

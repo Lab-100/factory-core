@@ -53,6 +53,12 @@ def serve(host: str | None = None, port: int | None = None) -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://{host}:{actual}/"
     print(tr("desktop.opening", url=url))
+    try:
+        from ..single import record_instance
+
+        record_instance(url)
+    except Exception:  # noqa: BLE001 — адрес для повторного запуска не критичен
+        pass
     webview.create_window(tr("desktop.title"), url, width=1240, height=840)
     try:
         webview.start()

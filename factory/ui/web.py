@@ -685,6 +685,12 @@ def serve(host: str | None = None, port: int | None = None) -> int:
     server = ThreadingHTTPServer((host, port), _handler_class())
     print(tr("web.serving", host=host, port=port))
     try:
+        from ..single import record_instance
+
+        record_instance(f"http://{host}:{port}/")
+    except Exception:  # noqa: BLE001 — адрес для повторного запуска не критичен
+        pass
+    try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n" + tr("web.stopped"))

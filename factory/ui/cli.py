@@ -136,20 +136,53 @@ def _cmd_run(args) -> int:
 
 
 def _cmd_ui(args) -> int:
+    """Интерфейс фабрики: окно, дашборд в браузере или трей.
+
+    По умолчанию интерфейс поднимается один раз: повторный запуск (например,
+    второй клик по ярлыку) не создаёт второго окна и сервера — он сообщает о
+    работающем экземпляре и выводит его окно на передний план. Несколько
+    экземпляров разрешает оператор флагом ``--allow-multiple``.
+    """
     mode = args.mode
-    if mode == "web":
-        from .web import serve
-        return serve()
-    if mode == "tray":
-        from .tray import serve
-        return serve()
-    if mode == "desktop":
+    if mode == "cli":
+        _, settings, _, _ = build_context()
+        tr = make_translator(settings)
+        print(tr("ui.cli_hint"))
+        return 0
+
+    root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    from ..single import InstanceGuard, open_url
+
+    allow = bool(getattr(args, "allow_multiple", False)) or bool(
+        settings.get("ui.allow_multiple", False))
+    guard = InstanceGuard(root=root, allow_multiple=allow, mode=mode)
+    if guard.acquire():
+        owner = guard.owner()
+        focused = guard.focus()
+        print(tr("ui.already_running", pid=owner.get("pid", "—"),
+                 mode=owner.get("mode") or mode))
+        if focused:
+            print(tr("ui.already_focused", pid=focused))
+        elif owner.get("url") and open_url(owner["url"]):
+            print(tr("ui.already_browser_opened", url=owner["url"]))
+        else:
+            print(tr("ui.already_no_focus"))
+        print(tr("ui.allow_multiple_hint", mode=mode))
+        return 0
+    if guard.degraded:
+        print(tr("ui.guard_degraded"))
+    try:
+        if mode == "web":
+            from .web import serve
+            return serve()
+        if mode == "tray":
+            from .tray import serve
+            return serve()
         from .desktop import serve
         return serve()
-    _, settings, _, _ = build_context()
-    tr = make_translator(settings)
-    print(tr("ui.cli_hint"))
-    return 0
+    finally:
+        guard.release()
 
 
 def _print_health(row: dict, name_key: str) -> None:
@@ -875,6 +908,8 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
 
     p_ui = sub.add_parser("ui", help=t(lang, "cmd.ui"))
     p_ui.add_argument("--mode", choices=["cli", "web", "tray", "desktop"], default="cli")
+    p_ui.add_argument("--allow-multiple", action="store_true",
+                      help=t(lang, "arg.ui.allow_multiple"))
     p_ui.set_defaults(func=_cmd_ui)
 
     p_doctor = sub.add_parser("doctor", help=t(lang, "cmd.doctor"))

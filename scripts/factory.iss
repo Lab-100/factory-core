@@ -59,15 +59,15 @@ Source: "..\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesu
 [Icons]
 ; Открытие интерфейса — через --open: повторный запуск не плодит вкладки, а
 ; выводит на передний план уже открытую страницу (она обновляется сама).
-Name: "{group}\Фабрика Lab-100 (окно)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: ""{sys}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\{#AppExeName}' -ArgumentList 'ui','--mode','desktop','--open' -WindowStyle Hidden"""; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"
-Name: "{group}\Дашборд в браузере"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: ""{sys}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\{#AppExeName}' -ArgumentList 'ui','--mode','web','--open' -WindowStyle Hidden"""; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"
+Name: "{group}\Фабрика Lab-100 (окно)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{app}\scripts\factory-gui.ps1" desktop -Open"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"
+Name: "{group}\Дашборд в браузере"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{app}\scripts\factory-gui.ps1" web -Open"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"
 Name: "{group}\Состояние фабрики"; Filename: "{app}\{#AppExeName}"; Parameters: "status"; WorkingDir: "{app}"
 Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Фабрика Lab-100"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: ""{sys}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\{#AppExeName}' -ArgumentList 'ui','--mode','desktop','--open' -WindowStyle Hidden"""; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\Фабрика Lab-100"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{app}\scripts\factory-gui.ps1" desktop -Open"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: path; Check: NeedsAddPath('{app}')
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FactoryLab100"; ValueData: ""{sys}\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\{#AppExeName}' -ArgumentList 'ui','--mode','web' -WindowStyle Hidden"""; Tasks: autostart; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FactoryLab100"; ValueData: "{sys}\WindowsPowerShell\v1.0\powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{app}\scripts\factory-gui.ps1" web"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Parameters: "status"; Description: "Проверить установку"; Flags: postinstall nowait skipifsilent

@@ -23,7 +23,9 @@ param(
     [string]$Exe = "",
     [string]$Arguments = "ui --mode web",
     [string]$LogDir = "",
-    [bool]$AutoStart = $true
+    [bool]$AutoStart = $true,
+    [switch]$Background,
+    [int]$RestartDelaySec = 10
 )
 
 Set-StrictMode -Version Latest
@@ -40,6 +42,15 @@ if ($existing.Count -gt 0) {
     Add-Type -AssemblyName Microsoft.VisualBasic
     [Microsoft.VisualBasic.Interaction]::AppActivate($existing[0].Id)
     exit 0
+}
+
+# Фоновый режим (для планировщика: -Background) — без окна, цель держится циклом.
+# Второго надзирателя не пускаем: иначе на один порт поднимутся две цели.
+$script:Headless = $Background.IsPresent
+$script:Mutex = $null
+if ($script:Headless) {
+    $script:Mutex = New-Object System.Threading.Mutex($false, 'Local\FactoryLab100-micromonitor')
+    if (-not $script:Mutex.WaitOne(0)) { exit 0 }
 }
 
 $script:ErrorMarkers = @(
@@ -130,7 +141,12 @@ function Count-Lines {
 
 function Start-Target {
     if ($script:proc -and -not $script:proc.HasExited) {
-        [System.Windows.Forms.MessageBox]::Show('Запуск уже идёт. Сначала остановите его.', 'Микромонитор')
+        if ($script:Headless) {
+            Write-MonitorLine -Stream 'stderr' -Text "цель уже запущена (pid $($script:proc.Id)) — повторный запуск пропущен"
+        }
+        else {
+            [System.Windows.Forms.MessageBox]::Show('Запуск уже идёт. Сначала остановите его.', 'Микромонитор')
+        }
         return
     }
     $exe = Get-FactoryExe -Hint $Exe
@@ -169,7 +185,7 @@ function Start-Target {
         $lblStatus.Text = 'Запуск не удался'
         return
     }
-    $timer.Start()
+    if ($timer) { $timer.Start() }
 }
 
 function Stop-Target {
@@ -177,7 +193,7 @@ function Stop-Target {
         try { Stop-Process -Id $script:proc.Id -Force } catch { }
         Write-MonitorLine -Stream 'stderr' -Text 'процесс остановлен пользователем'
     }
-    $timer.Stop()
+    if ($timer) { $timer.Stop() }
     $lblStatus.Text = 'Остановлено'
 }
 
@@ -191,10 +207,33 @@ function Complete-Tick {
     }
     $script:seenErr = Count-Lines -Path $script:errFile
     if ($script:proc -and $script:proc.HasExited) {
-        $timer.Stop()
+        if ($timer) { $timer.Stop() }
         $code = $script:proc.ExitCode
         if ($code -ne 0) { Write-MonitorLine -Stream 'stderr' -Text "процесс завершился с кодом $code" }
         $lblStatus.Text = "Завершено: код $code, ошибок: $script:errorCount — журнал: $script:logFile"
+    }
+}
+
+if ($script:Headless) {
+    # Фоновый надзор (задача планировщика): без окна. Вместо контролов — «невидимые»
+    # TextBox/Label: AppendText и Text работают и без формы, поэтому весь остальной
+    # код журнала остаётся общим с оконным режимом.
+    $txtErrors = New-Object System.Windows.Forms.TextBox
+    $txtAll = New-Object System.Windows.Forms.TextBox
+    $lblStatus = New-Object System.Windows.Forms.Label
+    $timer = $null   # в фоне таймера нет: опрос идёт циклом ниже
+    Start-Target
+    while ($true) {
+        Start-Sleep -Milliseconds 400
+        Complete-Tick
+        # Буферы нужны только как приёмник вывода: на диске журнал полный, память не копим.
+        if ($txtAll.TextLength -gt 200000) { $txtAll.Clear(); $txtErrors.Clear() }
+        if (-not $script:proc -or $script:proc.HasExited) {
+            $code = if ($script:proc) { $script:proc.ExitCode } else { 'нет' }
+            Write-MonitorLine -Stream 'stderr' -Text "цель завершилась (код: $code) — перезапуск через $RestartDelaySec с"
+            Start-Sleep -Seconds $RestartDelaySec
+            Start-Target
+        }
     }
 }
 

@@ -31,6 +31,16 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Только один экземпляр: если окно монитора уже открыто — активируем его и выходим.
+$existing = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.MainWindowTitle -eq 'Микромонитор запуска — Фабрика Lab-100' -and $_.Id -ne $PID
+})
+if ($existing.Count -gt 0) {
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    [Microsoft.VisualBasic.Interaction]::AppActivate($existing[0].Id)
+    exit 0
+}
+
 $script:ErrorMarkers = @(
     'traceback', 'exception', 'syntaxerror', 'importerror', 'modulenotfounderror',
     'no module named', 'error:', 'error ', 'error,', 'error.', 'ошибка', 'ошибк',

@@ -239,8 +239,8 @@ async function loadSessions(){
  document.getElementById('sessions').innerHTML=
   '<table><tr><th>id</th><th>'+T.thTitle+'</th><th>'+T.thCount+'</th><th>'+T.thUpdated+'</th><th></th></tr>'+
   items.map(s=>{
-   const openBtn='<button onclick="openSession(\''+s.id+'\')">'+T.sesOpen+'</button>';
-   const delBtn='<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
+   const openBtn='<button onclick="openSession(\\''+s.id+'\\')">'+T.sesOpen+'</button>';
+   const delBtn='<button class="warn" onclick="delSession(\\''+s.id+'\\')">'+T.sesDel+'</button>';
    return '<tr><td><code>'+esc(s.id)+'</code></td><td>'+esc(s.title)+'</td><td>'+s.count+'</td>'+
     '<td><small>'+esc((s.updated||'').slice(0,19))+'</small></td><td>'+openBtn+' '+delBtn+'</td></tr>';
   }).join('')+'</table>';
@@ -257,7 +257,7 @@ async function openSession(id){
   '<button onclick="sendMsg()">'+T.sesSend+'</button> '+
   '<a class="btn" href="/api/export?kind=session&id='+s.id+'&format=md" download>md</a> '+
   '<a class="btn" href="/api/export?kind=session&id='+s.id+'&format=json" download>json</a> '+
-  '<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
+  '<button class="warn" onclick="delSession(\\''+s.id+'\\')">'+T.sesDel+'</button>';
 }
 async function sendMsg(){
  const ta=document.getElementById('sesMsg');
@@ -396,8 +396,8 @@ async function loadProviders(){
   items.map(p=>{
    const cmd=p.command?'<br><small><code>'+esc(p.command)+'</code></small>':'';
    const btn=p.enabled
-    ?'<button class="warn" onclick="toggleProvider(\''+esc(p.name)+'\',false)">'+T.provOff+'</button>'
-    :'<button onclick="toggleProvider(\''+esc(p.name)+'\',true)">'+T.provOn+'</button>';
+    ?'<button class="warn" onclick="toggleProvider(\\''+esc(p.name)+'\\',false)">'+T.provOff+'</button>'
+    :'<button onclick="toggleProvider(\\''+esc(p.name)+'\\',true)">'+T.provOn+'</button>';
    return '<tr><td><code>'+esc(p.name)+'</code></td><td>'+esc(p.title)+cmd+'</td><td class="'+(p.available?'on':'off')+'">'+(p.available?T.on:T.off)+'</td><td class="'+(p.enabled?'on':'off')+'">'+(p.enabled?T.on:T.off)+'</td><td>'+btn+'</td></tr>';
   }).join('')+'</table><p><small>'+esc(T.provHint)+'</small></p>';
 }
@@ -441,7 +441,7 @@ async function loadDoctor(){
   const skip=['adapter','integration','available'];
   const details=Object.entries(x).filter(([k,v])=>skip.indexOf(k)<0&&v!==null&&v!==''&&!(Array.isArray(v)&&!v.length))
    .map(([k,v])=>'<div><small><b>'+esc(k)+'</b>: '+esc(Array.isArray(v)?v.join(', '):String(v))+'</small></div>').join('');
-  return '<tr class="clickable" onclick="showLogs(\''+esc(name)+'\')">'+
+  return '<tr class="clickable" onclick="showLogs(\\''+esc(name)+'\\')">'+
    '<td><code>'+esc(name)+'</code> <small>'+kind+'</small>'+details+'</td>'+
    '<td class="'+(x.available?'on':'off')+'">'+(x.available?T.on:T.off)+'</td></tr>';
  };
@@ -500,7 +500,7 @@ async function loadInfra(){
  g.nodes.forEach(n=>{(byClass[n['class']]=byClass[n['class']]||[]).push(n)});
  const cols=Object.keys(byClass).map(c=>
   '<div class="infra-col"><h4>'+esc((g.class_titles||{})[c]||c)+' ('+byClass[c].length+')</h4>'+
-  byClass[c].map(n=>'<div class="node" onclick="showLogs(\''+esc(n.id)+'\')">'+
+  byClass[c].map(n=>'<div class="node" onclick="showLogs(\\''+esc(n.id)+'\\')">'+
     '<b>'+esc(n.id)+'</b> <span class="chip '+esc(n.state)+'">'+esc(n.state)+'</span><br>'+
     '<small>очки '+n.points_percent+'% · интент '+esc(n.intent||'—')+' · владелец '+esc(n.owner||'—')+'</small><br>'+
     '<small>класс '+esc(n['class'])+' · простой '+fmtSec(n.idle_sec)+(n.pid?(' · pid '+esc(n.pid)):'')+'</small>'+
@@ -511,14 +511,14 @@ async function loadInfra(){
   ? '<ul>'+g.candidates.map(c=>'<li><code>'+esc(c.id)+'</code> <small>'+esc(JSON.stringify(c))+'</small></li>').join('')+'</ul>'
   : '<p class="hint">'+esc(T.infraNoCand)+'</p>';
  const ev=(g.events||[]).length
-  ? '<pre style="max-height:220px;overflow:auto">'+g.events.map(x=>esc(x)).join('\n')+'</pre>'
+  ? '<pre style="max-height:220px;overflow:auto">'+g.events.map(x=>esc(x)).join('\\n')+'</pre>'
   : '<p class="hint">'+T.noData+'</p>';
  box.innerHTML=
   '<p>'+states+'</p>'+
   '<p class="hint"><small>'+esc(String(g.saved_at||'').slice(0,19))+' · '+esc(T.infraNodes)+': '+g.total+' · '+esc(g.path||'')+'</small></p>'+
   '<div class="infra-grid">'+cols+'</div>'+
   '<p>'+shotBtn+'</p>'+
-  '<img class="shot" id="shotImg" src="/api/infra/shot.png?t='+Date.now()+'" style="'+(g.shot_exists?'':'display:none')+'" onerror="this.style.display=\'none\'">'+
+  '<img class="shot" id="shotImg" src="/api/infra/shot.png?t='+Date.now()+'" style="'+(g.shot_exists?'':'display:none')+'" onerror="this.style.display=\\'none\\'">'+
   '<details open><summary>'+esc(T.infraCandidates)+'</summary>'+cand+'</details>'+
   '<details><summary>'+esc(T.infraEvents)+'</summary>'+ev+'</details>';
 }

@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -137,6 +140,32 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn("loadInfra", html)           # и его загрузчик
         self.assertIn("showLogs", html)            # переходы «строка → логи»
         self.assertIn("buildNav", html)            # оглавление разделов
+
+    def test_dashboard_script_is_valid_javascript(self) -> None:
+        """Скрипт страницы обязан быть синтаксически целым.
+
+        Регресс: шаблон не raw, поэтому ``\\'`` в Python превращалось в пустую
+        пару кавычек и весь JavaScript падал — разделы не наполнялись, клики и
+        переходы в логи не работали. Если в системе есть ``node``, проверяем
+        по-настоящему; иначе остаётся грубая эвристика.
+        """
+        code, html = self._get_text("/")
+        self.assertEqual(code, 200)
+        found = re.search(r"<script>(.*?)</script>", html, re.S)
+        self.assertIsNotNone(found, "на странице нет скрипта")
+        js = found.group(1)
+        # признак потерянного экранирования: onclick="имя(''  (должно быть \')
+        self.assertIsNone(re.search(r"onclick=\"\w+\(''", js))
+        self.assertIn("onclick=\"openSession(\\'", js)
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node недоступен: проверена только эвристика")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "dashboard.js"
+            path.write_text(js, encoding="utf-8")
+            done = subprocess.run([node, "--check", str(path)],
+                                  capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[:400])
 
     def test_api_infra_reads_tool_state(self) -> None:
         state = self.root / "monitor" / "state"

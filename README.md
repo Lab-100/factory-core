@@ -86,8 +86,14 @@ python -m factory region switch --region US
 # интерфейсы
 python -m factory ui --mode cli     # текущий
 python -m factory ui --mode web     # дашборд http://127.0.0.1:8787 (запуск задач, очередь, подтверждения)
+python -m factory ui --mode web --open  # то же + открыть (или поднять уже открытую) вкладку дашборда
 python -m factory ui --mode tray    # трей (нужен pystray)
 python -m factory ui --mode desktop # окно приложения (нужен pywebview: pip install .[desktop])
+
+Дашборд обновляется сам: очередь задач — каждые 2 с, арсенал и карта
+инфраструктуры — 5 с, диагностика, квоты и журнал — 15 с. Повторный запуск с
+`--open` не плодит вкладки: страница выводится на передний план (уже открытая
+вкладка активируется через CDP, иначе открывается одна новая).
 
 # автовход в GitHub (device flow: код + автооткрытие браузера, токен → state/github.token)
 python -m factory auth login
@@ -197,6 +203,14 @@ python -m factory run examples/task.tools.json --dry-run
   в результат и в журнал. Просмотр — `factory catalog` (список/`show`/`--json`,
   фильтр `--domain`) и раздел «Каталог артефактов» в дашборде (`/api/catalog`,
   `/api/catalog/show?path=`).
+- **Карта инфраструктуры (§4.7)** — раздел дашборда читает фактическое состояние
+  узлов станции из `nodes.json` инструмента `infra-graph` (`INVR_TOOLS_ROOT` или
+  `adapters.invr_root`, переопределяется `INFRAGRAPH_STATE_FILE`): класс и очки,
+  интент, владелец, простой, pid, счётчики ошибок, кандидаты на выгрузку и
+  переходы состояний из `events.log`. Клик по узлу открывает логи с фильтром по
+  имени, кнопка «Снимок графа» запускает `infra-graph -Shot` и показывает PNG.
+  Если инструмент недоступен, раздел честно сообщает об этом (`available: false`)
+  и не рисует выдуманных узлов.
 - **Супервизия (этап 5)** — `factory watchdog` наблюдает за адаптерами, снимает
   зависшие задачи (`job-timeout`), перезагружает домены при изменении
   `config/domains.toml`/профилей и пишет события в `state/watchdog.jsonl` и ledger.

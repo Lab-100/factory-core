@@ -164,13 +164,20 @@ path = "state/arsenal.json"
 # Доступные имена: opencode, claude-code, cursor, windsurf, void, zen, workai,
 # multitool. Провайдеры не опрашиваются без нужды — только поимённое
 # переключение владельцем.
-auto_route = false          # true — направлять code/answer/deep-research во внешний агент
+auto_route = true           # true — направлять code/answer/deep-research во внешний агент
+
+[providers.workai]
+enabled = true
+command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 
 [routing]
 # Направление компетенций на адаптер (перекрывает встроенную маршрутизацию).
 # Формат: <адаптер> или <адаптер>:<действие>. Пример:
 #   answer = "external_agent"
 #   code   = "external_agent:chat"
+answer = "external_agent"
+code = "external_agent:chat"
+deep-research = "external_agent"
 
 [dispatch]
 # Режим диспетчера: linear | dag

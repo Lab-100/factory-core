@@ -181,16 +181,79 @@ def record_instance(url: str = "", root=None, scope: str = DEFAULT_SCOPE) -> Non
     _write_owner(path, data)
 
 
-def open_url(url: str) -> bool:
+def open_url(url: str, new: int = 0) -> bool:
     """Открыть адрес в браузере пользователя (запасной путь для повторного запуска)."""
     if not url:
         return False
     try:
         import webbrowser
 
-        return bool(webbrowser.open(url))
+        return bool(webbrowser.open(url, new=new))
     except Exception:  # noqa: BLE001
         return False
+
+
+#: Порты отладочного протокола браузера (CDP), проверяемые при повторном запуске.
+CDP_PORTS = (9222, 9223, 9229)
+
+
+def cdp_ports() -> tuple[int, ...]:
+    """Порты CDP: сперва из ``FACTORY_CDP_PORTS``, затем стандартные."""
+    raw = os.environ.get("FACTORY_CDP_PORTS", "")
+    extra: list[int] = []
+    for token in raw.replace(";", ",").split(","):
+        token = token.strip()
+        if token.isdigit():
+            extra.append(int(token))
+    return tuple(dict.fromkeys([*extra, *CDP_PORTS]))
+
+
+def reuse_browser_tab(url: str, ports: tuple[int, ...] | None = None) -> bool:
+    """Поднять на передний план уже открытую вкладку дашборда (через CDP).
+
+    Новая вкладка при этом не создаётся: повторный запуск не плодит страницы,
+    а показывает ту, что уже открыта и сама обновляет содержимое. Работает,
+    если браузер запущен с ключом ``--remote-debugging-port=<порт>``; иначе
+    возвращает ``False``, и вызывающий сам решает, открывать ли страницу.
+    """
+    if not url:
+        return False
+    import urllib.request
+
+    target = url.rstrip("/")
+    for port in (ports if ports is not None else cdp_ports()):
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/json/list", timeout=1.5) as resp:
+                pages = json.loads(resp.read().decode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001 — порт закрыт или это не CDP
+            continue
+        for page in pages or []:
+            if str(page.get("type") or "") != "page":
+                continue
+            if str(page.get("url") or "").rstrip("/") != target:
+                continue
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/json/activate/{page.get('id')}",
+                        timeout=1.5):
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
+    return False
+
+
+def open_dashboard(url: str, prefer_reuse: bool = True) -> str:
+    """Показать дашборд.
+
+    Возвращает ``reused`` — активировали открытую вкладку, ``opened`` —
+    открыли новую страницу, ``none`` — не удалось ни то, ни другое.
+    """
+    if prefer_reuse and reuse_browser_tab(url):
+        return "reused"
+    if open_url(url):
+        return "opened"
+    return "none"
 
 
 class _Mutex:

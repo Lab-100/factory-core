@@ -7,7 +7,7 @@
 ; автозапуска и каталог в PATH удаляются вместе с программой.
 
 #ifndef AppVersion
-  #define AppVersion "0.4.4"
+  #define AppVersion "0.4.5"
 #endif
 
 #define AppName "Фабрика Lab-100"
@@ -57,11 +57,13 @@ Source: "..\project.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedo
 Source: "..\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\Фабрика Lab-100 (окно)"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode desktop"; WorkingDir: "{app}"
-Name: "{group}\Дашборд в браузере"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode web"; WorkingDir: "{app}"
+; Открытие интерфейса — через --open: повторный запуск не плодит вкладки, а
+; выводит на передний план уже открытую страницу (она обновляется сама).
+Name: "{group}\Фабрика Lab-100 (окно)"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode desktop --open"; WorkingDir: "{app}"
+Name: "{group}\Дашборд в браузере"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode web --open"; WorkingDir: "{app}"
 Name: "{group}\Состояние фабрики"; Filename: "{app}\{#AppExeName}"; Parameters: "status"; WorkingDir: "{app}"
 Name: "{group}\Удалить {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Фабрика Lab-100"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode desktop"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\Фабрика Lab-100"; Filename: "{app}\{#AppExeName}"; Parameters: "ui --mode desktop --open"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: path; Check: NeedsAddPath('{app}')

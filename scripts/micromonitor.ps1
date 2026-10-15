@@ -13,14 +13,15 @@
 Параметры:
     -Exe <путь>        чем запускать (по умолчанию ищется factory.exe рядом,
                        затем установленный, затем `py -m factory`)
-    -Arguments "..."   аргументы запуска (по умолчанию "ui --mode desktop")
+    -Arguments "..."   аргументы запуска (по умолчанию "ui --mode web":
+                       тихий сервер дашборда без открытия новых вкладок)
     -LogDir <путь>     куда писать журнал (по умолчанию logs рядом с фабрикой)
     -NoAutoStart       не запускать цель сразу при открытии окна
 #>
 [CmdletBinding()]
 param(
     [string]$Exe = "",
-    [string]$Arguments = "ui --mode desktop",
+    [string]$Arguments = "ui --mode web",
     [string]$LogDir = "",
     [bool]$AutoStart = $true
 )

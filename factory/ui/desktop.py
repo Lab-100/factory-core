@@ -33,7 +33,8 @@ def _start_server(host: str, port: int) -> tuple[ThreadingHTTPServer, int]:
         return ThreadingHTTPServer((host, fallback), web._handler_class()), fallback
 
 
-def serve(host: str | None = None, port: int | None = None) -> int:
+def serve(host: str | None = None, port: int | None = None,
+          open_browser: bool = False) -> int:
     roots = web.build_context()
     settings = roots[1]
     tr = web.make_translator(settings)
@@ -47,7 +48,7 @@ def serve(host: str | None = None, port: int | None = None) -> int:
             print(tr("desktop.hint_web"))
             return 1
         print(tr("desktop.fallback_web"))
-        return web.serve(host=host, port=port)
+        return web.serve(host=host, port=port, open_browser=open_browser)
 
     server, actual = _start_server(host, port)
     threading.Thread(target=server.serve_forever, daemon=True).start()

@@ -104,8 +104,30 @@ _TEMPLATE = """<!doctype html>
  label{display:inline-block;margin-right:12px;margin-top:8px}
  code{color:#9ad1ff}
  select{width:auto}
+ nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+ nav a{color:#9ad1ff;text-decoration:none;font-size:13px;background:#0f1115;border:1px solid #262b36;border-radius:6px;padding:3px 8px}
+ nav a:hover{border-color:#2d6cdf}
+ nav a.on{border-color:#2d6cdf;color:#fff}
+ section.collapsed > *:not(h2){display:none}
+ h2{cursor:pointer;user-select:none}
+ h2 .fold{color:#6b7280;font-size:12px;font-weight:400;margin-left:8px}
+ tr.clickable:hover{background:#1b2130;cursor:pointer}
+ .chip{display:inline-block;border-radius:10px;padding:1px 8px;font-size:12px;border:1px solid #262b36}
+ .chip.active{color:#5ddc7d;border-color:#2f6b41}
+ .chip.idle{color:#9ad1ff;border-color:#2d4a6b}
+ .chip.unloaded{color:#8b93a7;border-color:#333a49}
+ .chip.need-guard{color:#e5c07b;border-color:#6b5a2f}
+ .chip.fault{color:#e06c75;border-color:#6b2f34}
+ .infra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}
+ .infra-col h4{margin:0 0 6px;font-size:13px;color:#9ad1ff}
+ .node{border:1px solid #262b36;border-radius:8px;padding:6px 8px;margin-bottom:6px;cursor:pointer;background:#0f1115}
+ .node small{color:#8b93a7}
+ details summary{cursor:pointer;color:#9ad1ff}
+ img.shot{max-width:100%;border:1px solid #262b36;border-radius:8px;margin-top:8px}
+ .hint{color:#8b93a7;font-size:13px}
+ a.btn{display:inline-block;background:#2d6cdf;color:#fff;padding:6px 10px;border-radius:6px;text-decoration:none;font-size:13px;margin:2px}
 </style></head><body>
-<header><h1>{{t_title}}</h1></header>
+<header><h1>{{t_title}}</h1><nav id="nav"></nav></header>
 <main>
  <section><h2>{{t_new_task}}</h2>
   <textarea id="goal" rows="3" placeholder="{{t_goal_ph}}"></textarea>
@@ -135,6 +157,7 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
+ <section><h2>{{t_infra}}</h2><div id="infra"></div></section>
  <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
  <section><h2>{{t_doctor}}</h2><div id="doctor"></div></section>
  <section><h2>{{t_arsenal}}</h2><div id="arsenal"></div></section>
@@ -159,6 +182,9 @@ const T={
  provEnabled:'{{t_th_enabled}}',provAvail:'{{t_avail}}',provOn:'{{t_turn_on}}',provOff:'{{t_turn_off}}',provHint:'{{t_prov_hint}}',
  thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
  sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
+ nav:'{{t_web_nav}}',infraShot:'{{t_infra_shot}}',infraEmpty:'{{t_infra_empty}}',
+ infraNodes:'{{t_infra_nodes}}',infraEvents:'{{t_infra_events}}',infraCand:'{{t_infra_candidates}}',
+ infraNoCand:'{{t_infra_no_candidates}}',logsFiltered:'{{t_logs_filtered}}',ledgerEmpty:'{{t_ledger_empty}}',
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -229,8 +255,8 @@ async function openSession(id){
   '<div style="max-height:260px;overflow:auto;border:1px solid #262b36;border-radius:8px;padding:8px;margin-bottom:8px">'+rows+'</div>'+
   '<textarea id="sesMsg" rows="2" placeholder="'+esc(T.sesPh)+'"></textarea>'+
   '<button onclick="sendMsg()">'+T.sesSend+'</button> '+
-  '<button onclick="window.open(\'/api/export?kind=session&id='+s.id+'&format=md\')">md</button> '+
-  '<button onclick="window.open(\'/api/export?kind=session&id='+s.id+'&format=json\')">json</button> '+
+  '<a class="btn" href="/api/export?kind=session&id='+s.id+'&format=md" download>md</a> '+
+  '<a class="btn" href="/api/export?kind=session&id='+s.id+'&format=json" download>json</a> '+
   '<button class="warn" onclick="delSession(\''+s.id+'\')">'+T.sesDel+'</button>';
 }
 async function sendMsg(){
@@ -255,9 +281,9 @@ async function loadJobs(){
   r.jobs.map(x=>{
    let actions='';
    if(x.awaiting) actions=`<button onclick="approveJob('${x.id}',true)">${T.appr}</button> <button class="warn" onclick="approveJob('${x.id}',false)">${T.skip}</button>`;
-   const exp=`<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=md')">md</button>`+
-    `<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=json')">json</button>`+
-    `<button onclick="window.open('/api/export?kind=job&id=${x.id}&format=zip')">zip</button>`;
+   const exp=`<a class="btn" href="/api/export?kind=job&id=${x.id}&format=md" download>md</a>`+
+    `<a class="btn" href="/api/export?kind=job&id=${x.id}&format=json" download>json</a>`+
+    `<a class="btn" href="/api/export?kind=job&id=${x.id}&format=zip" download>zip</a>`;
    actions=(actions?actions+' ':'')+exp;
    const cls=x.status==='awaiting-approval'?'wait':(x.status==='done'?'on':(x.status==='running'?'wait':'off'));
    return `<tr><td>${x.id}</td><td class="${cls}">${x.status}</td><td>${esc(x.goal).slice(0,60)}</td><td>${x.domain||'auto'}</td><td>${actions}</td></tr>`;
@@ -288,7 +314,71 @@ async function load(){
    <td class="${x.enabled?'on':'off'}">${x.enabled?T.on:T.off}
    <button onclick="toggle('${x.name}',${!x.enabled})">${x.enabled?T.off:T.on}</button></td></tr>`).join('')+'</table>';
  const l=await j('/api/ledger');
- document.getElementById('ledger').innerHTML='<pre>'+l.events.map(e=>esc(JSON.stringify(e))).join('\\n')+'</pre>';
+ loadLedger(l);
+ buildNav();
+}
+async function loadLedger(payload){
+ const l=payload||await j('/api/ledger');
+ const events=l.events||[];
+ const box=document.getElementById('ledger');
+ if(!events.length){box.innerHTML='<p class="hint">'+esc(T.ledgerEmpty)+'</p>';return}
+ const rows=events.map(e=>{
+  const ts=esc(String(e.ts||e.time||'').slice(0,19));
+  const kind=esc(String(e.kind||e.event||e.action||'—'));
+  const task=esc(String(e.task||e.goal||'').slice(0,48));
+  const ok=e.ok===undefined?'':(e.ok?'<span class="on">ок</span>':'<span class="off">ошибка</span>');
+  return '<tr class="clickable" onclick="toggleDump(this)">'+
+   '<td><small>'+ts+'</small></td><td>'+kind+'</td><td>'+task+'</td><td>'+ok+'</td></tr>'+
+   '<tr class="dump" style="display:none"><td colspan="4"><pre>'+esc(JSON.stringify(e))+'</pre></td></tr>';
+ }).join('');
+ box.innerHTML='<table><tr><th>'+T.thUpdated+'</th><th>'+T.thStatus+'</th><th>'+T.thGoal+'</th><th></th></tr>'+rows+'</table>';
+}
+function toggleDump(row){
+ const next=row.nextElementSibling;
+ if(next&&next.classList.contains('dump')) next.style.display=next.style.display==='table-row'?'none':'table-row';
+}
+function buildNav(){
+ const nav=document.getElementById('nav');
+ if(!nav) return;
+ const secs=[...document.querySelectorAll('main > section')];
+ secs.forEach((s,i)=>{ if(!s.id) s.id='sec-'+i; });
+ nav.innerHTML='<span class="hint" style="margin:2px 6px 0 0">'+esc(T.nav)+':</span>'+
+  secs.map(s=>'<a href="#'+s.id+'">'+esc((s.querySelector('h2')||{}).textContent? s.querySelector('h2').textContent.replace('▾','').replace('▸','').trim():'')+'</a>').join('');
+ secs.forEach(s=>{
+  const h=s.querySelector('h2');
+  if(!h||h.dataset.fold) return;
+  h.dataset.fold='1';
+  h.insertAdjacentHTML('beforeend',' <span class="fold">▾</span>');
+  h.addEventListener('click',()=>{
+   s.classList.toggle('collapsed');
+   const f=h.querySelector('.fold');
+   if(f) f.textContent=s.classList.contains('collapsed')?'▸':'▾';
+  });
+ });
+ if(!window.__navObs&&'IntersectionObserver' in window){
+  window.__navObs=new IntersectionObserver(list=>{
+   list.forEach(entry=>{
+    const link=document.querySelector('nav a[href="#'+entry.target.id+'"]');
+    if(link) link.classList.toggle('on',entry.isIntersecting);
+   });
+  },{rootMargin:'-40% 0px -50% 0px'});
+  secs.forEach(s=>window.__navObs.observe(s));
+ }
+}
+function showLogs(element,source){
+ const sel=document.getElementById('logSrc');
+ const inp=document.getElementById('logEl');
+ if(sel&&source!==undefined) sel.value=source||'';
+ if(inp) inp.value=element||'';
+ loadLogs();
+ const sec=document.getElementById('logs')?document.getElementById('logs').closest('section'):null;
+ if(sec){sec.classList.remove('collapsed');sec.scrollIntoView({behavior:'smooth',block:'start'});}
+}
+function fmtSec(value){
+ const s=Number(value||0);
+ if(s<60) return s+' с';
+ if(s<3600) return Math.round(s/60)+' мин';
+ return (s/3600).toFixed(1)+' ч';
 }
 async function loadProject(){
  const p=await j('/api/project');
@@ -346,13 +436,21 @@ async function loadDoctor(){
  const adpts=d.adapters||[], ints=d.integrations||[];
  const ready=adpts.filter(x=>x.available).length;
  const readyInt=ints.filter(x=>x.available).length;
- const rows=adpts.map(x=>[x.adapter,x.available]).concat(ints.map(x=>[x.integration,x.available]));
+ const deco=(x,kind)=>{
+  const name=x.adapter||x.integration||'—';
+  const skip=['adapter','integration','available'];
+  const details=Object.entries(x).filter(([k,v])=>skip.indexOf(k)<0&&v!==null&&v!==''&&!(Array.isArray(v)&&!v.length))
+   .map(([k,v])=>'<div><small><b>'+esc(k)+'</b>: '+esc(Array.isArray(v)?v.join(', '):String(v))+'</small></div>').join('');
+  return '<tr class="clickable" onclick="showLogs(\''+esc(name)+'\')">'+
+   '<td><code>'+esc(name)+'</code> <small>'+kind+'</small>'+details+'</td>'+
+   '<td class="'+(x.available?'on':'off')+'">'+(x.available?T.on:T.off)+'</td></tr>';
+ };
  document.getElementById('doctor').innerHTML=
   '<p>'+esc(T.doctorSummary
    .replace('{ready}',ready).replace('{total}',adpts.length)
    .replace('{iready}',readyInt).replace('{itotal}',ints.length))+'</p>'+
   '<table><tr><th>'+T.thName+'</th><th>'+T.thState+'</th></tr>'+
-  rows.map(([n,a])=>`<tr><td>${esc(n)}</td><td class="${a?'on':'off'}">${a?T.on:T.off}</td></tr>`).join('')+'</table>';
+  adpts.map(x=>deco(x,'adapter')).join('')+ints.map(x=>deco(x,'integration')).join('')+'</table>';
 }
 async function loadArsenal(){
  const a=await j('/api/arsenal');
@@ -361,7 +459,7 @@ async function loadArsenal(){
  const rows=(a.nodes||[]).map(n=>{
   const canAct=n.class==='service'&&n.meta&&n.meta.start&&n.meta.start.length;
   const ctl=canAct?`<button onclick="act('${n.id}','restart')">↻</button>`:'';
-  return `<tr><td><code>${esc(n.name)}</code></td><td>${esc(n.class)}</td>`+
+  return `<tr class="clickable" onclick="showLogs('${esc(n.name)}','factory.supervisor')"><td><code>${esc(n.name)}</code></td><td>${esc(n.class)}</td>`+
    `<td class="${cls[n.state]||''}">${esc(n.state)}</td><td>${esc(n.owner)}</td>`+
    `<td><small>${esc(n.detail||'')}</small></td><td>${ctl}</td></tr>`;
  }).join('');
@@ -381,14 +479,64 @@ async function loadLogs(){
  const el=inp?inp.value:'';
  const r=await j(`/api/logs?limit=200${src?('&source='+encodeURIComponent(src)):''}${el?('&element='+encodeURIComponent(el)):''}`);
  const opts=(r.sources||[]).map(x=>`<option value="${esc(x.id)}"${src===x.id?' selected':''}>${esc(x.name)}${x.available?'':' (—)'}</option>`).join('');
+ const title=el?('<b>'+esc(T.logsFiltered.replace('{name}',el))+'</b> '):'';
  document.getElementById('logs').innerHTML=
-  '<p><select id="logSrc" onchange="loadLogs()"><option value="">'+T.logsAll+'</option>'+opts+'</select> '+
+  '<p>'+title+'<select id="logSrc" onchange="loadLogs()"><option value="">'+T.logsAll+'</option>'+opts+'</select> '+
   '<input id="logEl" style="width:auto" placeholder="'+T.logsPh+'" value="'+esc(el)+'"> '+
   '<button onclick="loadLogs()">'+T.refresh+'</button></p>'+
   '<pre style="max-height:320px;overflow:auto">'+r.lines.map(x=>esc('['+x.source+'] '+x.line)).join('\\n')+'</pre>';
 }
-load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+async function loadInfra(){
+ const g=await j('/api/infra');
+ const box=document.getElementById('infra');
+ if(!box) return;
+ const shotBtn='<button onclick="shotGraph()">'+esc(T.infraShot)+'</button> <span id="shotMsg" class="hint"></span>';
+ if(!g.total){
+  box.innerHTML='<p class="hint">'+esc(T.infraEmpty)+'</p>'+
+   '<p><small>'+esc(g.path||'')+'</small></p>'+shotBtn;
+  return;
+ }
+ const byClass={};
+ g.nodes.forEach(n=>{(byClass[n['class']]=byClass[n['class']]||[]).push(n)});
+ const cols=Object.keys(byClass).map(c=>
+  '<div class="infra-col"><h4>'+esc((g.class_titles||{})[c]||c)+' ('+byClass[c].length+')</h4>'+
+  byClass[c].map(n=>'<div class="node" onclick="showLogs(\''+esc(n.id)+'\')">'+
+    '<b>'+esc(n.id)+'</b> <span class="chip '+esc(n.state)+'">'+esc(n.state)+'</span><br>'+
+    '<small>очки '+n.points_percent+'% · интент '+esc(n.intent||'—')+' · владелец '+esc(n.owner||'—')+'</small><br>'+
+    '<small>класс '+esc(n['class'])+' · простой '+fmtSec(n.idle_sec)+(n.pid?(' · pid '+esc(n.pid)):'')+'</small>'+
+    (n.errors?('<br><small class="off">ошибок: '+n.errors+'</small>'):'')+
+   '</div>').join('')+'</div>').join('');
+ const states=Object.entries(g.counts||{}).map(([k,v])=>'<span class="chip '+esc(k)+'">'+esc(k)+': '+v+'</span>').join(' ');
+ const cand=(g.candidates||[]).length
+  ? '<ul>'+g.candidates.map(c=>'<li><code>'+esc(c.id)+'</code> <small>'+esc(JSON.stringify(c))+'</small></li>').join('')+'</ul>'
+  : '<p class="hint">'+esc(T.infraNoCand)+'</p>';
+ const ev=(g.events||[]).length
+  ? '<pre style="max-height:220px;overflow:auto">'+g.events.map(x=>esc(x)).join('\n')+'</pre>'
+  : '<p class="hint">'+T.noData+'</p>';
+ box.innerHTML=
+  '<p>'+states+'</p>'+
+  '<p class="hint"><small>'+esc(String(g.saved_at||'').slice(0,19))+' · '+esc(T.infraNodes)+': '+g.total+' · '+esc(g.path||'')+'</small></p>'+
+  '<div class="infra-grid">'+cols+'</div>'+
+  '<p>'+shotBtn+'</p>'+
+  '<img class="shot" id="shotImg" src="/api/infra/shot.png?t='+Date.now()+'" style="'+(g.shot_exists?'':'display:none')+'" onerror="this.style.display=\'none\'">'+
+  '<details open><summary>'+esc(T.infraCandidates)+'</summary>'+cand+'</details>'+
+  '<details><summary>'+esc(T.infraEvents)+'</summary>'+ev+'</details>';
+}
+async function shotGraph(){
+ const msg=document.getElementById('shotMsg');
+ if(msg) msg.textContent='…';
+ try{
+  const r=await fetch('/api/infra/shot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const d=await r.json();
+  if(msg) msg.textContent=d.ok?'готово':('ошибка: '+(d.error||''));
+  if(d.ok){const img=document.getElementById('shotImg');if(img){img.style.display='';img.src='/api/infra/shot.png?t='+Date.now();}}
+ }catch(e){ if(msg) msg.textContent='ошибка: '+e; }
+}
+load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
+setInterval(function(){loadArsenal();loadInfra();loadMonitoring();},5000);
+setInterval(function(){loadDoctor();loadQuotas();loadProviders();loadLedger();},15000);
+setInterval(function(){loadSessions();loadCatalog();},30000);
 </script></body></html>"""
 
 
@@ -470,6 +618,16 @@ def _page(lang: str) -> str:
         "t_turn_on": tr("web.turn_on"),
         "t_turn_off": tr("web.turn_off"),
         "t_prov_hint": tr("web.prov_hint"),
+        "t_web_nav": tr("web.nav"),
+        "t_infra": tr("web.infra"),
+        "t_infra_shot": tr("web.infra_shot"),
+        "t_infra_empty": tr("web.infra_empty"),
+        "t_infra_nodes": tr("web.infra_nodes"),
+        "t_infra_events": tr("web.infra_events"),
+        "t_infra_candidates": tr("web.infra_candidates"),
+        "t_infra_no_candidates": tr("web.infra_no_candidates"),
+        "t_logs_filtered": tr("web.logs_filtered"),
+        "t_ledger_empty": tr("web.ledger_empty"),
     }
     html = _TEMPLATE
     for key, value in tokens.items():
@@ -562,6 +720,19 @@ def _handler_class():
             if path == "/api/inventory":
                 from .. import inventory
                 return self._send(inventory.load_saved(settings) or inventory.build(settings))
+            if path == "/api/infra":
+                from .. import infragraph
+                return self._send(infragraph.load(settings))
+            if path == "/api/infra/shot.png":
+                from .. import infragraph
+                shot = infragraph.shot_path(settings)
+                if not shot.exists():
+                    return self._send({"error": "снимок графа ещё не сделан"}, status=404)
+                try:
+                    data = shot.read_bytes()
+                except OSError as exc:
+                    return self._send({"error": str(exc)}, status=500)
+                return self._send(data, content_type="image/png")
             if path == "/api/catalog":
                 from .. import catalog
                 return self._send(catalog.build(settings))
@@ -672,23 +843,38 @@ def _handler_class():
                 result = sup.action(str(data.get("element") or ""),
                                     str(data.get("action") or "up"))
                 return self._send(result, status=200 if result.get("ok") else 400)
+            if path == "/api/infra/shot":
+                from .. import infragraph
+                _, post_settings, _, _ = build_context()
+                result = infragraph.snapshot(post_settings)
+                return self._send(result, status=200 if result.get("ok") else 400)
             return self._send({"error": "not found"}, status=404)
 
     return Handler
 
 
-def serve(host: str | None = None, port: int | None = None) -> int:
+def serve(host: str | None = None, port: int | None = None,
+          open_browser: bool = False) -> int:
     _, settings, _, _ = build_context()
     tr = make_translator(settings)
     host = host or str(settings.get("ui.web.host", "127.0.0.1"))
     port = port or int(settings.get("ui.web.port", 8787))
     server = ThreadingHTTPServer((host, port), _handler_class())
     print(tr("web.serving", host=host, port=port))
+    url = f"http://{host}:{port}/"
     try:
-        from ..single import record_instance
+        from ..single import open_dashboard, record_instance
 
-        record_instance(f"http://{host}:{port}/")
-    except Exception:  # noqa: BLE001 — адрес для повторного запуска не критичен
+        record_instance(url)
+        if open_browser:
+            # Явная просьба показать дашборд: сначала активируем уже открытую
+            # вкладку (если браузер с отладкой), и только потом — новая.
+            how = open_dashboard(url)
+            if how == "opened":
+                print(tr("web.browser_opened", url=url))
+            elif how == "reused":
+                print(tr("web.browser_reused", url=url))
+    except Exception:  # noqa: BLE001 — открытие браузера не критично
         pass
     try:
         server.serve_forever()

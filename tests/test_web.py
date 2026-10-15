@@ -130,6 +130,40 @@ class WebDashboardTest(unittest.TestCase):
         self.assertIn("<html", html)
         self.assertNotIn("{{", html)  # все подстановки i18n закрыты
 
+    def test_index_page_has_infra_section(self) -> None:
+        code, html = self._get_text("/")
+        self.assertEqual(code, 200)
+        self.assertIn('id="infra"', html)          # раздел карты инфраструктуры
+        self.assertIn("loadInfra", html)           # и его загрузчик
+        self.assertIn("showLogs", html)            # переходы «строка → логи»
+        self.assertIn("buildNav", html)            # оглавление разделов
+
+    def test_api_infra_reads_tool_state(self) -> None:
+        state = self.root / "monitor" / "state"
+        state.mkdir(parents=True)
+        (state / "nodes.json").write_text(json.dumps({
+            "schema": "invr.nodes/1",
+            "savedAt": "2026-10-15T12:00:00+03:00",
+            "nodes": {"ollama": {"Val": 0.5, "State": "idle", "Class": "service",
+                                 "Owner": "system", "Intent": "auto", "IdleSec": 5}},
+            "candidates": {"browsertool": {"Class": "demand"}},
+        }, ensure_ascii=False), encoding="utf-8")
+        with mock.patch.dict("os.environ",
+                             {"INFRAGRAPH_STATE_FILE": str(state / "nodes.json")}):
+            code, data = self._get("/api/infra")
+        self.assertEqual(code, 200)
+        self.assertTrue(data["available"])
+        self.assertEqual([n["id"] for n in data["nodes"]], ["ollama"])
+        self.assertEqual(data["candidates"][0]["id"], "browsertool")
+
+    def test_api_infra_without_state_is_ok(self) -> None:
+        with mock.patch.dict("os.environ",
+                             {"INFRAGRAPH_STATE_FILE": str(self.root / "нет-состояния.json")}):
+            code, data = self._get("/api/infra")
+        self.assertEqual(code, 200)               # честная деградация, а не 500
+        self.assertFalse(data["available"])
+        self.assertEqual(data["nodes"], [])
+
     def test_api_settings_get_and_set(self) -> None:
         code, data = self._get("/api/settings")
         self.assertEqual(code, 200)

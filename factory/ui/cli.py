@@ -152,22 +152,33 @@ def _cmd_ui(args) -> int:
 
     root, settings, _, _ = build_context()
     tr = make_translator(settings)
-    from ..single import InstanceGuard, open_url
+    from ..single import InstanceGuard, open_dashboard
 
     allow = bool(getattr(args, "allow_multiple", False)) or bool(
         settings.get("ui.allow_multiple", False))
+    want_open = bool(getattr(args, "open", False))
     guard = InstanceGuard(root=root, allow_multiple=allow, mode=mode)
     if guard.acquire():
         owner = guard.owner()
         focused = guard.focus()
+        url = str(owner.get("url") or "")
         print(tr("ui.already_running", pid=owner.get("pid", "—"),
                  mode=owner.get("mode") or mode))
         if focused:
             print(tr("ui.already_focused", pid=focused))
-        elif owner.get("url") and open_url(owner["url"]):
-            print(tr("ui.already_browser_opened", url=owner["url"]))
-        else:
+        elif not url:
             print(tr("ui.already_no_focus"))
+        elif want_open:
+            how = open_dashboard(url)
+            if how == "reused":
+                print(tr("ui.already_browser_reused", url=url))
+            elif how == "opened":
+                print(tr("ui.already_browser_opened", url=url))
+            else:
+                print(tr("ui.already_no_focus"))
+        else:
+            # Новых вкладок не плодим: открытая страница обновляется сама.
+            print(tr("ui.already_no_open", url=url))
         print(tr("ui.allow_multiple_hint", mode=mode))
         return 0
     if guard.degraded:
@@ -175,12 +186,12 @@ def _cmd_ui(args) -> int:
     try:
         if mode == "web":
             from .web import serve
-            return serve()
+            return serve(open_browser=want_open)
         if mode == "tray":
             from .tray import serve
             return serve()
         from .desktop import serve
-        return serve()
+        return serve(open_browser=want_open)
     finally:
         guard.release()
 
@@ -910,6 +921,8 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_ui.add_argument("--mode", choices=["cli", "web", "tray", "desktop"], default="cli")
     p_ui.add_argument("--allow-multiple", action="store_true",
                       help=t(lang, "arg.ui.allow_multiple"))
+    p_ui.add_argument("--open", action="store_true",
+                      help=t(lang, "arg.ui.open"))
     p_ui.set_defaults(func=_cmd_ui)
 
     p_doctor = sub.add_parser("doctor", help=t(lang, "cmd.doctor"))

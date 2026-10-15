@@ -66,8 +66,8 @@ if ($userPath -notlike "*$install*") {
 $menu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Фабрика Lab-100"
 New-Item -ItemType Directory -Force -Path $menu | Out-Null
 $shortcuts = @(
-    @{ Name = "Фабрика Lab-100 (окно)"; Arguments = "ui --mode desktop" },
-    @{ Name = "Дашборд в браузере"; Arguments = "ui --mode web" },
+    @{ Name = "Фабрика Lab-100 (окно)"; Arguments = "ui --mode desktop --open" },
+    @{ Name = "Дашборд в браузере"; Arguments = "ui --mode web --open" },
     @{ Name = "Состояние фабрики"; Arguments = "status" }
 )
 foreach ($item in $shortcuts) {

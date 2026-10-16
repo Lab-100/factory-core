@@ -170,8 +170,30 @@ path = "state/arsenal.json"
 # переключение владельцем.
 auto_route = true           # true — направлять code/answer/deep-research во внешний агент
 
-[providers.workai]
+[providers.claude-code]
 enabled = true
+command = "C:\\Users\\TEKK\\.devstation\\tools\\agent-bridges\\agent-rotate.cmd"
+
+[providers.opencode]
+enabled = true
+
+[providers.cursor]
+enabled = false
+
+[providers.windsurf]
+enabled = false
+
+[providers.void]
+enabled = false
+
+[providers.zen]
+enabled = false
+
+[providers.multitool]
+enabled = false
+
+[providers.workai]
+enabled = false
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 
 [routing]

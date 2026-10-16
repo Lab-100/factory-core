@@ -44,13 +44,18 @@ if ($existing.Count -gt 0) {
     exit 0
 }
 
-# Фоновый режим (для планировщика: -Background) — без окна, цель держится циклом.
-# Второго надзирателя не пускаем: иначе на один порт поднимутся две цели.
+# Единый мьютекс — и для оконного, и для фонового запуска (раньше его брал только
+# -Background, и ручной запуск поднимал второго надзирателя: две цели начинали
+# драться за порт 8787 и падать). Ключ один на всю машину, поэтому второй цикл
+# не заведётся ни из окна, ни из планировщика.
 $script:Headless = $Background.IsPresent
-$script:Mutex = $null
-if ($script:Headless) {
-    $script:Mutex = New-Object System.Threading.Mutex($false, 'Local\FactoryLab100-micromonitor')
-    if (-not $script:Mutex.WaitOne(0)) { exit 0 }
+$script:Mutex = New-Object System.Threading.Mutex($false, 'Local\FactoryLab100-micromonitor')
+if (-not $script:Mutex.WaitOne(0)) {
+    if ($script:Headless) { exit 0 }   # надзор уже идёт — тихо не мешаем
+    Write-Host 'Надзор фабрики уже работает — второй экземпляр не нужен.'
+    Write-Host 'Цель держит фоновый микромонитор, она же перезапускается при падении.'
+    Write-Host 'Хотите своё окно вместо надзора: Stop-ScheduledTask -TaskName FactoryMicromonitor'
+    exit 0
 }
 
 $script:ErrorMarkers = @(

@@ -78,6 +78,16 @@ class MonitorTest(unittest.TestCase):
     def test_single_instance_guard_present(self) -> None:
         self.assertIn("Микромонитор запуска — Фабрика Lab-100", MONITOR)
 
+    def test_mutex_is_taken_in_all_modes(self) -> None:
+        """Мьютекс общий для оконного и фонового запуска — иначе два цикла дерутся за порт."""
+        pos_mutex = MONITOR.find("New-Object System.Threading.Mutex")
+        self.assertGreater(pos_mutex, 0, "мьютекс надзирателя не создан")
+        pos_headless = MONITOR.find("if ($script:Headless) {")
+        self.assertGreater(pos_headless, 0, "нет ветки Headless")
+        self.assertLess(pos_mutex, pos_headless,
+                        "мьютекс создан внутри ветки Headless — оконный запуск обойдёт блокировку")
+        self.assertIn("if (-not $script:Mutex.WaitOne(0)) {", MONITOR)
+
 
 class GuiScriptTest(unittest.TestCase):
     def test_script_exists(self) -> None:

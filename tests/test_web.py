@@ -2,8 +2,10 @@
 
 Поднимает штатный `http.server` на свободном порту с изолированным контекстом
 (свой корень, домены, журнал) и проверяет выдачу `/` и `/api/*`, включая запуск
-задачи, статус очереди и подтверждение шага полуавтомата. Внешних вызовов нет —
-задачи запускаются в dry-run.
+задачи, статус очереди и подтверждение шага полуавтомата. Отдельно проверяются
+версия фабрики (`/api/version`) и кэш снимка карты: PNG отдаётся с ETag и
+Last-Modified, а повторный условный запрос получает 304 без тела. Внешних
+вызовов нет — задачи запускаются в dry-run.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
+import factory
 from factory.domains import DomainRegistry
 from factory.ledger import Ledger
 from factory.settings import Settings
@@ -193,6 +196,91 @@ class WebDashboardTest(unittest.TestCase):
         self.assertEqual(code, 200)               # честная деградация, а не 500
         self.assertFalse(data["available"])
         self.assertEqual(data["nodes"], [])
+
+    # --- версия и кэш снимка карты ---
+    def test_api_version_reports_package_version(self) -> None:
+        code, data = self._get("/api/version")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["version"], factory.__version__)
+        self.assertTrue(data["python"].startswith("3."))
+
+    def test_index_page_shows_version_and_infra_counters(self) -> None:
+        code, html = self._get_text("/")
+        self.assertEqual(code, 200)
+        self.assertIn(f'<span class="ver">v{factory.__version__}</span>', html)
+        self.assertIn('id="infraSummary"', html)      # счётчики состояний
+        self.assertIn('id="infraLegend"', html)       # расшифровка цветов
+        self.assertIn("T.infraCounts", html)          # подпись счётчиков
+        self.assertIn("T.infraTotal.replace('{total}'", html)   # общее число узлов
+        self.assertIn('id="shotTime"', html)          # время снимка
+        self.assertIn('onclick="shotGraph()"', html)  # кнопка обновления снимка
+
+    def _png_state(self) -> tuple[Path, Path]:
+        state = self.root / "monitor" / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        nodes = state / "nodes.json"
+        nodes.write_text(json.dumps({
+            "schema": "invr.nodes/1",
+            "nodes": {"monitor": {"Val": 1.0, "State": "active", "Class": "core"}},
+        }), encoding="utf-8")
+        shot = state / "infra-graph.png"
+        shot.write_bytes(b"\x89PNG\r\n\x1a\n" + "снимок".encode("utf-8"))
+        return nodes, shot
+
+    def test_infra_shot_png_is_cached_with_etag(self) -> None:
+        nodes, _shot = self._png_state()
+        with mock.patch.dict("os.environ", {"INFRAGRAPH_STATE_FILE": str(nodes)}):
+            with self.opener.open(self._url("/api/infra/shot.png"), timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("image/png", resp.headers.get("Content-Type", ""))
+                etag = resp.headers.get("ETag")
+                modified = resp.headers.get("Last-Modified")
+                body = resp.read()
+        self.assertTrue(body.startswith(b"\x89PNG"))
+        self.assertTrue(etag, "PNG должен отдаваться с ETag")
+        self.assertTrue(modified, "PNG должен отдаваться с Last-Modified")
+
+    def test_infra_shot_png_conditional_request_is_304(self) -> None:
+        nodes, _shot = self._png_state()
+        with mock.patch.dict("os.environ", {"INFRAGRAPH_STATE_FILE": str(nodes)}):
+            with self.opener.open(self._url("/api/infra/shot.png"), timeout=10) as resp:
+                etag = resp.headers.get("ETag")
+                modified = resp.headers.get("Last-Modified")
+                resp.read()
+
+            # тот же файл: If-None-Match → 304 без тела
+            request = urllib.request.Request(self._url("/api/infra/shot.png"),
+                                             headers={"If-None-Match": etag})
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.opener.open(request, timeout=10)
+            self.assertEqual(ctx.exception.code, 304)
+            self.assertEqual(ctx.exception.read(), b"")
+
+            # и по дате изменения: If-Modified-Since → тоже 304
+            request = urllib.request.Request(self._url("/api/infra/shot.png"),
+                                             headers={"If-Modified-Since": modified})
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.opener.open(request, timeout=10)
+            self.assertEqual(ctx.exception.code, 304)
+
+            # чужой ETag → обычные 200 с телом
+            request = urllib.request.Request(self._url("/api/infra/shot.png"),
+                                             headers={"If-None-Match": '"stale-1"'})
+            with self.opener.open(request, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertTrue(resp.read().startswith(b"\x89PNG"))
+
+    def test_infra_reports_shot_time_and_counts(self) -> None:
+        nodes, shot = self._png_state()
+        with mock.patch.dict("os.environ", {"INFRAGRAPH_STATE_FILE": str(nodes)}):
+            code, data = self._get("/api/infra")
+        self.assertEqual(code, 200)
+        self.assertTrue(data["shot_exists"])
+        self.assertEqual(data["counts"], {"active": 1})
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["shot_mtime"], int(shot.stat().st_mtime))
+        self.assertRegex(data["shot_saved_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+        self.assertIsInstance(data["shot_age_sec"], int)
 
     def test_api_settings_get_and_set(self) -> None:
         code, data = self._get("/api/settings")

@@ -6,6 +6,7 @@
 
 Эндпоинты:
   GET  /                          — дашборд
+  GET  /api/version               — версия фабрики ({"version", "python"})
   GET  /api/settings              — настройки
   GET  /api/settings/set?key=&value=
   GET  /api/domains               — домены
@@ -30,14 +31,19 @@
   POST /api/sessions/delete       — удалить сессию: {"id": ...}
   POST /api/upload                — загрузка вложений (multipart/form-data)
   POST /api/supervise/action      — действие над службой: {"element": ..., "action": "up|down|restart"}
+  POST /api/infra/shot            — перерисовать снимок карты
+  GET  /api/infra/shot.png        — снимок карты (ETag/Last-Modified, 304 при совпадении)
 """
 from __future__ import annotations
 
 import json
+import platform
 import threading
+from email.utils import formatdate, parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from .. import __version__
 from ..context import build_context
 from ..i18n import choose, make_translator
 from ..jobs import JobManager
@@ -97,6 +103,7 @@ _TEMPLATE = """<!doctype html>
  body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#0f1115;color:#e6e6e6;font-size:1rem;line-height:1.5}
  header{position:sticky;top:0;z-index:40;padding:14px 24px 12px;background:#161a22;border-bottom:1px solid #262b36}
  h1{margin:0 0 4px;font-size:1.5rem;line-height:1.25}
+  .ver{color:#8b93a7;font-size:12px;font-weight:400;white-space:nowrap}
  main{padding:24px;display:grid;gap:20px;max-width:1240px;margin:0 auto;grid-template-columns:minmax(0,1fr)}
  section{background:#161a22;border:1px solid #262b36;border-radius:12px;padding:18px 20px;min-width:0;scroll-margin-top:150px}
  section h2{font-size:1.12rem;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #262b36}
@@ -137,6 +144,7 @@ _TEMPLATE = """<!doctype html>
  .chip.unloaded{color:#8b93a7;border-color:#333a49}
  .chip.need-guard{color:#e5c07b;border-color:#6b5a2f}
  .chip.fault{color:#e06c75;border-color:#6b2f34}
+  .chip.total{color:#e6e6e6;border-color:#3a4250}
  .infra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}
  .infra-col{min-width:0}
  .infra-col h4{margin:0 0 6px;font-size:13px;color:#9ad1ff}
@@ -167,7 +175,7 @@ _TEMPLATE = """<!doctype html>
   .fsrow input[type=range]{width:100%}
  }
 </style></head><body>
-<header><h1>{{t_title}}</h1><nav id="nav"></nav></header>
+<header><h1>{{t_title}} <span class="ver">v{{version}}</span></h1><nav id="nav"></nav></header>
 <main>
  <section><h2>{{t_new_task}}</h2>
   <textarea id="goal" rows="3" placeholder="{{t_goal_ph}}"></textarea>
@@ -197,7 +205,13 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_ledger}}</h2><div id="ledger"></div></section>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
- <section><h2>{{t_infra}}</h2><div id="infra"></div></section>
+ <section><h2>{{t_infra}}</h2>
+  <p id="infraSummary"></p>
+  <p class="hint" id="infraLegend">{{t_infra_legend}}</p>
+  <div id="infra"></div>
+  <p><button onclick="shotGraph()">{{t_infra_shot_refresh}}</button> <span id="shotTime" class="hint"></span> <span id="shotMsg" class="hint"></span></p>
+  <img class="shot" id="shotImg" alt="infra-graph" style="display:none" onerror="this.style.display='none'">
+ </section>
  <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
  <section><h2>{{t_doctor}}</h2><div class="hint" id="doctorSum"></div><div id="doctor"></div></section>
  <section><h2>{{t_arsenal}}</h2><div class="hint" id="arsenalSum"></div><div id="arsenal"></div></section>
@@ -223,6 +237,9 @@ const T={
  thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
  sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
  nav:'{{t_web_nav}}',infraShot:'{{t_infra_shot}}',infraEmpty:'{{t_infra_empty}}',
+  infraCounts:'{{t_infra_counts}}',infraLegend:'{{t_infra_legend}}',infraTotal:'{{t_infra_total}}',
+  infraShotAt:'{{t_infra_shot_at}}',infraShotNone:'{{t_infra_shot_none}}',
+  infraShotReady:'{{t_infra_shot_ready}}',infraShotFail:'{{t_infra_shot_fail}}',
  infraNodes:'{{t_infra_nodes}}',infraEvents:'{{t_infra_events}}',infraCand:'{{t_infra_candidates}}',
  infraNoCand:'{{t_infra_no_candidates}}',logsFiltered:'{{t_logs_filtered}}',ledgerEmpty:'{{t_ledger_empty}}',
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}',
@@ -743,10 +760,16 @@ async function loadInfra(){
  const g=await j('/api/infra');
  const box=document.getElementById('infra');
  if(!box) return;
- const shotBtn='<button onclick="shotGraph()">'+esc(T.infraShot)+'</button> <span id="shotMsg" class="hint"></span>';
+ syncShot(g);
+ /* счётчики состояний и общее число узлов — из того же ответа /api/infra */
+ const sum=document.getElementById('infraSummary');
+ const cnt=Object.entries(g.counts||{});
+ if(sum) setBlock(sum,cnt.length
+  ? esc(T.infraCounts)+' '+cnt.map(([k,v])=>'<span class="chip '+esc(k)+'">'+esc(k)+': '+v+'</span>').join(' ')+
+   ' <span class="chip total">'+esc(T.infraTotal.replace('{total}',g.total||0))+'</span>'
+  : '<span class="hint">'+esc(T.infraEmpty)+'</span>');
  if(!g.total){
-  box.innerHTML='<p class="hint">'+esc(T.infraEmpty)+'</p>'+
-   '<p><small>'+esc(g.path||'')+'</small></p>'+shotBtn;
+  box.innerHTML='<p class="hint"><small>'+esc(g.path||'')+'</small></p>';
   return;
  }
  const byClass={};
@@ -759,7 +782,6 @@ async function loadInfra(){
     '<small>класс '+esc(n['class'])+' · простой '+fmtSec(n.idle_sec)+(n.pid?(' · pid '+esc(n.pid)):'')+'</small>'+
     (n.errors?('<br><small class="off">ошибок: '+n.errors+'</small>'):'')+
    '</div>').join('')+'</div>').join('');
- const states=Object.entries(g.counts||{}).map(([k,v])=>'<span class="chip '+esc(k)+'">'+esc(k)+': '+v+'</span>').join(' ');
  const cand=(g.candidates||[]).length
   ? '<ul>'+g.candidates.map(c=>'<li><code>'+esc(c.id)+'</code> <small>'+esc(JSON.stringify(c))+'</small></li>').join('')+'</ul>'
   : '<p class="hint">'+esc(T.infraNoCand)+'</p>';
@@ -767,13 +789,28 @@ async function loadInfra(){
   ? '<pre style="max-height:220px;overflow:auto">'+g.events.map(x=>esc(x)).join('\\n')+'</pre>'
   : '<p class="hint">'+T.noData+'</p>';
  box.innerHTML=
-  '<p>'+states+'</p>'+
   '<p class="hint"><small>'+esc(String(g.saved_at||'').slice(0,19))+' · '+esc(T.infraNodes)+': '+g.total+' · '+esc(g.path||'')+'</small></p>'+
   '<div class="infra-grid">'+cols+'</div>'+
-  '<p>'+shotBtn+'</p>'+
-  '<img class="shot" id="shotImg" src="/api/infra/shot.png?t='+Date.now()+'" style="'+(g.shot_exists?'':'display:none')+'" onerror="this.style.display=\\'none\\'">'+
   '<details open><summary>'+esc(T.infraCandidates)+'</summary>'+cand+'</details>'+
   '<details><summary>'+esc(T.infraEvents)+'</summary>'+ev+'</details>';
+}
+/* --- снимок карты: PNG перезапрашивается только когда он изменился --- */
+let shotMtime=null;
+function shotTimeText(g){
+ const s=String((g&&g.shot_saved_at)||'');
+ return s?s.replace('T',' ').slice(0,19):'';
+}
+function syncShot(g){
+ const img=document.getElementById('shotImg');
+ const st=document.getElementById('shotTime');
+ const exists=!!(g&&g.shot_exists);
+ if(st) setTxt(st,exists?T.infraShotAt.replace('{time}',shotTimeText(g)||'—'):T.infraShotNone);
+ if(!img) return;
+ if(!exists){img.style.display='none';img.removeAttribute('src');shotMtime=null;return}
+ const mt=Number(g.shot_mtime||0);
+ img.style.display='';
+ /* без ?t= — браузер шлёт If-None-Match, сервер отвечает 304, PNG не качается */
+ if(shotMtime!==mt||!img.getAttribute('src')){shotMtime=mt;img.src='/api/infra/shot.png'}
 }
 async function shotGraph(){
  const msg=document.getElementById('shotMsg');
@@ -781,9 +818,9 @@ async function shotGraph(){
  try{
   const r=await fetch('/api/infra/shot',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();
-  if(msg) msg.textContent=d.ok?'готово':('ошибка: '+(d.error||''));
-  if(d.ok){const img=document.getElementById('shotImg');if(img){img.style.display='';img.src='/api/infra/shot.png?t='+Date.now();}}
- }catch(e){ if(msg) msg.textContent='ошибка: '+e; }
+  if(msg) msg.textContent=d.ok?T.infraShotReady:T.infraShotFail+(d.error||'');
+  if(d.ok){shotMtime=null;loadInfra();}
+ }catch(e){ if(msg) msg.textContent=T.infraShotFail+e; }
 }
 load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 setInterval(loadJobs,2000);
@@ -797,6 +834,7 @@ def _page(lang: str) -> str:
     tr = make_translator(lang=lang)
     tokens = {
         "lang": lang,
+        "version": __version__,
         "t_title": tr("web.title"),
         "t_new_task": tr("web.new_task"),
         "t_goal_ph": tr("web.goal_ph"),
@@ -884,6 +922,14 @@ def _page(lang: str) -> str:
         "t_web_nav": tr("web.nav"),
         "t_infra": tr("web.infra"),
         "t_infra_shot": tr("web.infra_shot"),
+        "t_infra_shot_refresh": tr("web.infra_shot_refresh"),
+        "t_infra_shot_at": tr("web.infra_shot_at"),
+        "t_infra_shot_none": tr("web.infra_shot_none"),
+        "t_infra_shot_ready": tr("web.infra_shot_ready"),
+        "t_infra_shot_fail": tr("web.infra_shot_fail"),
+        "t_infra_counts": tr("web.infra_counts"),
+        "t_infra_total": tr("web.infra_total"),
+        "t_infra_legend": tr("web.infra_legend"),
         "t_infra_empty": tr("web.infra_empty"),
         "t_infra_nodes": tr("web.infra_nodes"),
         "t_infra_events": tr("web.infra_events"),
@@ -913,15 +959,51 @@ def _jobs() -> JobManager:
 
 def _handler_class():
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, payload, status=200, content_type="application/json", filename=None):
+        def _send(self, payload, status=200, content_type="application/json", filename=None,
+                  headers=None):
             body = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             if filename:
                 self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            for key, value in (headers or {}).items():
+                self.send_header(key, value)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _not_modified(self, etag: str, last_modified: str) -> bool:
+            """Условный запрос: файл не менялся — отвечаем 304 и не шлём тело."""
+            inm = (self.headers.get("If-None-Match") or "").strip()
+            if inm:
+                return any(part.strip() in ("*", etag) for part in inm.split(","))
+            ims = (self.headers.get("If-Modified-Since") or "").strip()
+            if ims and last_modified:
+                try:
+                    want = parsedate_to_datetime(ims)
+                    have = parsedate_to_datetime(last_modified)
+                except (TypeError, ValueError):
+                    return False
+                if want is None or have is None:
+                    return False
+                return int(have.timestamp()) <= int(want.timestamp())
+            return False
+
+        def _send_file(self, data: bytes, content_type: str, etag: str,
+                       last_modified: str):
+            """Отдать файл с ETag/Last-Modified либо 304, если клиент всё видел."""
+            if self._not_modified(etag, last_modified):
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Last-Modified", last_modified)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
+            self._send(data, content_type=content_type, headers={
+                "ETag": etag,
+                "Last-Modified": last_modified,
+                "Cache-Control": "no-cache",
+            })
 
         def log_message(self, *args):  # тише
             return
@@ -934,6 +1016,13 @@ def _handler_class():
             if path == "/":
                 return self._send(_page(choose(settings)).encode("utf-8"),
                                   content_type="text/html; charset=utf-8")
+            if path == "/api/version":
+                return self._send({
+                    "schema": "invr.version/1",
+                    "name": "factory-core",
+                    "version": __version__,
+                    "python": platform.python_version(),
+                })
             if path == "/api/settings":
                 return self._send({
                     "active_profile": settings.get("active_profile", "default"),
@@ -996,9 +1085,12 @@ def _handler_class():
                     return self._send({"error": "снимок графа ещё не сделан"}, status=404)
                 try:
                     data = shot.read_bytes()
+                    mtime = shot.stat().st_mtime
                 except OSError as exc:
                     return self._send({"error": str(exc)}, status=500)
-                return self._send(data, content_type="image/png")
+                etag = f'"{int(mtime):x}-{len(data):x}"'
+                return self._send_file(data, "image/png", etag,
+                                       formatdate(int(mtime), usegmt=True))
             if path == "/api/catalog":
                 from .. import catalog
                 return self._send(catalog.build(settings))

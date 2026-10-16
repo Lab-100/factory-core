@@ -1,9 +1,11 @@
 """Тесты оформления веб-интерфейса: без новых окон, точечное обновление,
-перетаскиваемые столбцы, вкладки настроек и размер шрифта."""
+перетаскиваемые столбцы, вкладки настроек, размер шрифта, версия в шапке и
+понятность состояния узлов в разделе «инфраструктура»."""
 from __future__ import annotations
 
 import unittest
 
+from factory import __version__
 from factory.ui.web import _page
 
 
@@ -114,6 +116,55 @@ class SettingsTabsTest(unittest.TestCase):
         text = page()
         self.assertIn("const FS_KEY='factory.font_size'", text)
         self.assertIn("restoreFontSize();", text)
+
+
+class VersionBadgeTest(unittest.TestCase):
+    def test_version_shown_in_header(self) -> None:
+        for lang in ("ru", "en", "zh"):
+            self.assertIn(f'<span class="ver">v{__version__}</span>', page(lang))
+
+    def test_version_is_not_loud(self) -> None:
+        text = page()
+        start = text.index(".ver{")
+        chunk = text[start:text.index("}", start)]
+        self.assertIn("font-size:12px", chunk)
+        self.assertIn("#8b93a7", chunk)
+
+
+class InfraStateClarityTest(unittest.TestCase):
+    """Счётчики состояний и объяснение цветов — из уже приходящих данных."""
+
+    def test_state_counters_block_present(self) -> None:
+        text = page()
+        self.assertIn('id="infraSummary"', text)      # счётчики + всего узлов
+        self.assertIn("T.infraCounts", text)
+        self.assertIn("T.infraTotal.replace('{total}'", text)
+        self.assertIn('<span class="chip total">', text)
+
+    def test_legend_explains_grey_and_red(self) -> None:
+        self.assertIn('id="infraLegend"', page())
+        self.assertIn("выгружен по требованию", page("ru"))
+        self.assertIn("not a failure", page("en"))
+        self.assertIn("按需卸载", page("zh"))
+
+    def test_shot_time_and_refresh_button(self) -> None:
+        text = page()
+        self.assertIn('id="shotTime"', text)
+        self.assertIn('onclick="shotGraph()"', text)
+        self.assertIn("Обновить снимок", page("ru"))
+        self.assertIn("Refresh snapshot", page("en"))
+        self.assertIn("刷新快照", page("zh"))
+
+    def test_png_not_reloaded_every_poll(self) -> None:
+        """Без ?t= в адресе: кэш и 304 не дают качать PNG каждые 5 секунд."""
+        text = page()
+        self.assertNotIn("shot.png?t=", text)
+        self.assertIn("img.src='/api/infra/shot.png'", text)
+        self.assertIn("if(shotMtime!==mt||!img.getAttribute('src'))", text)
+
+    def test_infra_polling_not_faster_than_5s(self) -> None:
+        text = page()
+        self.assertIn("setInterval(function(){loadArsenal();loadInfra();loadMonitoring();},5000)", text)
 
 
 class TranslationTest(unittest.TestCase):

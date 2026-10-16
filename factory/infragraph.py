@@ -205,6 +205,7 @@ def load(settings=None, limit: int = 200) -> dict:
         "events": _tail(events_file(settings), limit),
         "shot": str(shot),
         "shot_exists": shot.exists(),
+        **_shot_stamp(shot),
     }
 
 
@@ -214,6 +215,23 @@ def _age_sec(path: Path) -> int | None:
         return int(max(0.0, time.time() - path.stat().st_mtime))
     except OSError:
         return None
+
+
+def _shot_stamp(shot: Path) -> dict:
+    """Время снимка графа: epoch-метка, локальное время и свежесть.
+
+    Нужно разделу «инфраструктура» в дашборде: показать, когда сделан снимок,
+    и обновлять картинку только если он изменился (вместе с ETag/304).
+    """
+    try:
+        mtime = shot.stat().st_mtime
+    except OSError:
+        return {"shot_mtime": 0, "shot_saved_at": "", "shot_age_sec": None}
+    return {
+        "shot_mtime": int(mtime),
+        "shot_saved_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(mtime)),
+        "shot_age_sec": int(max(0.0, time.time() - mtime)),
+    }
 
 
 def snapshot(settings=None, timeout: int = 240) -> dict:

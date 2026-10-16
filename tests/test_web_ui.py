@@ -45,7 +45,43 @@ class PatchUpdateTest(unittest.TestCase):
 
     def test_ledger_uses_set_block(self) -> None:
         text = page()
-        self.assertIn("setBlock(box,'<table><tr><th>'+T.thUpdated", text)
+        self.assertIn("setBlock(box,'<div class=\"tblwrap\"><table><tr><th>'+T.thUpdated", text)
+
+
+class ReadabilityTest(unittest.TestCase):
+    """Стандарты читаемости: страница не растягивается вбок, блоки кода
+    переносятся, шапка с разделами закреплена, таблицы прокручиваются в
+    своей обёртке, а не тянут весь макет."""
+
+    def test_grid_track_does_not_grow_from_content(self) -> None:
+        self.assertIn("grid-template-columns:minmax(0,1fr)", page())
+
+    def test_sections_cannot_overflow(self) -> None:
+        self.assertIn("section{background:#161a22", page())
+        text = page()
+        start = text.index("section{background")
+        chunk = text[start:text.index("}", start)]
+        self.assertIn("min-width:0", chunk)
+
+    def test_pre_wraps_long_lines(self) -> None:
+        text = page()
+        start = text.index("\n pre{")
+        chunk = text[start:text.index("}", start)]
+        self.assertIn("white-space:pre-wrap", chunk)
+        self.assertIn("overflow-wrap:anywhere", chunk)
+
+    def test_tables_live_in_scroll_wrapper(self) -> None:
+        text = page()
+        self.assertIn(".tblwrap{overflow-x:auto", text)
+        self.assertIn('<div class="tblwrap"><table data-fx=', text)
+
+    def test_header_is_sticky(self) -> None:
+        self.assertIn("header{position:sticky;top:0;z-index:40", page())
+
+    def test_touch_targets_are_large_enough(self) -> None:
+        text = page()
+        self.assertIn("min-height:32px", text)
+        self.assertIn("min-height:34px", text)
 
 
 class ColumnWidthTest(unittest.TestCase):

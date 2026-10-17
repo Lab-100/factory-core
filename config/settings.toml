@@ -193,7 +193,7 @@ enabled = false
 enabled = false
 
 [providers.workai]
-enabled = false
+enabled = true
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 
 [routing]

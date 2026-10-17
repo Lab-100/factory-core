@@ -61,7 +61,7 @@ PROVIDERS: dict[str, dict] = {
         "title": "workAI",
         "commands": ["workai"],
         "paths": ["~/.workai"],
-        "run": ["workai", "ask"],
+        "run": ["workai", "chat", "-m", "ask", "-"],
     },
     "multitool": {
         "title": "MultiTool",

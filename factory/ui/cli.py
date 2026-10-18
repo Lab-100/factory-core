@@ -859,6 +859,168 @@ def _cmd_heal(args) -> int:
     return 0 if report.get("healed") else 1
 
 
+def _netsuite_line(row: dict) -> str:
+    """Компактная строка состояния средства (без секретов)."""
+    mark = "[ok]" if (row.get("running") and row.get("applied")) else (
+        "[--]" if not row.get("enabled") else "[??]")
+    port = f"{row.get('host')}:{row.get('port')}"
+    state = "run" if row.get("running") else "stop"
+    return (f"{mark} {row['id']:<18} {state:<4} port={port:<18} "
+            f"applied={'да' if row.get('applied') else 'нет'}  {row['title']}")
+
+
+def _cmd_netsuite(args) -> int:
+    """Средства обхода (регион, шлюз, прокси Gemini): реестр и органы управления."""
+    from .. import netsuite
+
+    _root, settings, _, _ = build_context()
+    tr = make_translator(settings)
+    action = getattr(args, "netsuite_action", None) or "list"
+    tool = str(getattr(args, "tool", "") or "").strip()
+    want_tool = action in ("enable", "disable", "set", "start", "stop", "bootstrap",
+                           "import-base", "export-base")
+
+    if want_tool and not tool:
+        print(tr("netsuite.need_tool"), file=sys.stderr)
+        return 2
+
+    if action == "list":
+        specs = netsuite.tool_specs()
+        if args.json:
+            print(json.dumps({"tools": specs}, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("netsuite.list_title", count=len(specs)))
+        for item in specs:
+            enabled = netsuite.get_params(settings, item["id"]).get("enabled", True)
+            print(f"[{'+' if enabled else '-'}] "
+                  f"{item['id']:<18} порт {item['default_port']:<6} {item['title']}")
+        print(tr("netsuite.hint"))
+        return 0
+
+    if action == "status":
+        data = netsuite.status(settings, tool or None)
+        if not data.get("ok", True):
+            print(tr("netsuite.unknown", tool=tool), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("netsuite.status_title",
+                 enabled=data["summary"]["enabled"], total=data["summary"]["total"],
+                 running=data["summary"]["running"]))
+        for row in data["tools"]:
+            print(_netsuite_line(row))
+            for problem in row.get("issues") or []:
+                print(tr("netsuite.status_issue", tool=row["id"], text=problem))
+        return 0
+
+    if action in ("enable", "disable"):
+        result = netsuite.set_param(settings, tool, "enabled", action == "enable")
+        if not result.get("ok"):
+            print(tr("netsuite.set_fail", error=result.get("error", "")), file=sys.stderr)
+            return 1
+        print(tr("netsuite.enabled" if action == "enable" else "netsuite.disabled",
+                 tool=netsuite.title(tool)))
+        return 0
+
+    if action == "set":
+        if not str(args.key).strip():
+            print(tr("netsuite.need_key"), file=sys.stderr)
+            return 2
+        result = netsuite.set_param(settings, tool, args.key, args.value)
+        if not result.get("ok"):
+            print(tr("netsuite.set_fail", error=result.get("error", "")), file=sys.stderr)
+            return 1
+        print(tr("netsuite.set_ok", tool=tool, key=args.key, value=result["value"]))
+        return 0
+
+    if action == "apply":
+        result = netsuite.apply(settings, tool or None)
+        if not result.get("ok", True):
+            print(tr("netsuite.apply_fail", error=result.get("error", "")), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("netsuite.apply_title", count=len(result.get("changed") or []),
+                 warnings=len(result.get("warnings") or [])))
+        for changed in result.get("changed") or []:
+            print(tr("netsuite.apply_line", text=changed))
+        for warning in result.get("warnings") or []:
+            print(tr("netsuite.apply_warning", text=warning))
+        if not result.get("changed"):
+            print(tr("netsuite.apply_none"))
+        return 0
+
+    if action in ("start", "stop"):
+        runner = netsuite.start if action == "start" else netsuite.stop
+        result = runner(settings, tool)
+        if not result.get("ok"):
+            print(tr("netsuite.stop_fail" if action == "stop" else "netsuite.start_fail",
+                     tool=tool, error=result.get("error", "")), file=sys.stderr)
+            return 1
+        if action == "start":
+            print(tr("netsuite.start_ok", tool=tool, pid=result.get("pid", "?")))
+        else:
+            print(tr("netsuite.stop_ok", tool=tool))
+        return 0
+
+    if action == "check":
+        data = netsuite.check(settings, tool or None)
+        if not data.get("ok", True):
+            print(tr("netsuite.unknown", tool=tool), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("netsuite.check_title", total=data["summary"]["total"],
+                 ok=data["summary"]["ok"]))
+        for row in data["tools"]:
+            mark = "[ok]" if row.get("ok") else "[!!]"
+            print(tr("netsuite.check_line", mark=mark, tool=row["id"],
+                     detail=row.get("detail", "")))
+        return 0 if data["summary"]["ok"] == data["summary"]["total"] else 1
+
+    if action == "bootstrap":
+        result = netsuite.bootstrap(settings, tool)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0 if result.get("ok") else 1
+        print(tr("netsuite.bootstrap_title", tool=tool))
+        for step in result.get("steps") or []:
+            print(tr("netsuite.step", mark="[ok]" if step.get("ok") else "[!!]",
+                     text=f"{step['step']}: {step.get('detail', '')}"))
+        if not result.get("ok") and result.get("error"):
+            print(tr("netsuite.bootstrap_fail", tool=tool, error=result["error"]),
+                  file=sys.stderr)
+            return 1
+        return 0 if result.get("ok") else 1
+
+    if action in ("import-base", "export-base"):
+        # Позиционная форма: import-base <tool> <kind> <путь>
+        kind = str(args.kind or args.key or "").strip()
+        path = str(args.path or args.value or "").strip()
+        if not kind or not path:
+            print(tr("netsuite.need_kind_path"), file=sys.stderr)
+            return 2
+        if action == "import-base":
+            result = netsuite.import_base(settings, tool, kind, path)
+        else:
+            result = netsuite.export_base(settings, tool, kind, path)
+        if not result.get("ok"):
+            print(tr("netsuite.base_fail", error=result.get("error", "")), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        print(tr("netsuite.base_ok", tool=tool, kind=kind,
+                 count=result.get("count", 0), path=result.get("path", result.get("source", ""))))
+        return 0
+
+    print(tr("err.unknown_action", action=action), file=sys.stderr)
+    return 2
+
+
 def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="factory", description=t(lang, "parser.desc"))
     sub = parser.add_subparsers(dest="command")
@@ -1034,6 +1196,26 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_monitor.add_argument("--all", action="store_true", help=t(lang, "arg.monitor.all"))
     p_monitor.add_argument("--json", action="store_true", help=t(lang, "arg.monitor.json"))
     p_monitor.set_defaults(func=_cmd_monitor)
+
+    p_netsuite = sub.add_parser("netsuite", help=t(lang, "cmd.netsuite"))
+    p_netsuite.add_argument("netsuite_action", nargs="?", default="list",
+                            choices=["list", "status", "enable", "disable", "set",
+                                     "apply", "start", "stop", "check", "bootstrap",
+                                     "import-base", "export-base"],
+                            help=t(lang, "arg.netsuite.action"))
+    p_netsuite.add_argument("tool", nargs="?", default="",
+                            help=t(lang, "arg.netsuite.tool"))
+    p_netsuite.add_argument("key", nargs="?", default="",
+                            help=t(lang, "arg.netsuite.key"))
+    p_netsuite.add_argument("value", nargs="?", default="",
+                            help=t(lang, "arg.netsuite.value"))
+    p_netsuite.add_argument("--kind", default="",
+                            help=t(lang, "arg.netsuite.kind"))
+    p_netsuite.add_argument("--path", default="",
+                            help=t(lang, "arg.netsuite.path"))
+    p_netsuite.add_argument("--json", action="store_true",
+                            help=t(lang, "arg.netsuite.json"))
+    p_netsuite.set_defaults(func=_cmd_netsuite)
 
     return parser
 

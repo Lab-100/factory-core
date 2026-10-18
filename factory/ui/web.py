@@ -201,7 +201,7 @@ _TEMPLATE = """<!doctype html>
   .msg{max-width:92%;padding:12px 16px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px;line-height:1.55}
   .msg.user{align-self:flex-end;background:#1d3a63;border:1px solid #2d6cdf}
   .msg.assistant{align-self:flex-start;background:#171c26;border:1px solid #262b36}
-  .msg.system{align-self:center;background:#12161e;border:1px solid #262b36;color:#8b93a7;font-size:14px}
+  .msg.system{align-self:flex-start;background:#12161e;border-left:4px solid #2d6cdf;border-top:1px solid #262b36;border-right:1px solid #262b36;border-bottom:1px solid #262b36;border-radius:6px 10px 10px 6px;color:#aab6cc;font-size:14px}
   .msg small{display:block;color:#8b93a7;font-size:13px;margin-top:5px}
   .chatrow{display:flex;gap:10px}
   .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px}
@@ -324,6 +324,7 @@ const T={
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}',
  chatDel:'{{t_chat_del}}',chatEmpty:'{{t_chat_empty}}',chatPick:'{{t_chat_pick}}',chatNone:'{{t_chat_none}}',
  chatWait:'{{t_chat_wait}}',chatSent:'{{t_chat_sent}}',
+ chatTimer:'{{t_chat_timer}}',chatNoReaction:'{{t_chat_no_reaction}}',chatRetry:'{{t_chat_retry}}',chatLogSent:'{{t_chat_log_sent}}',
  lang:'{{t_lang}}',tabUi:'{{t_tab_ui}}',tabAuto:'{{t_tab_auto}}',tabNet:'{{t_tab_net}}',tabService:'{{t_tab_service}}',fontSize:'{{t_font_size}}',save:'{{t_save}}',
  tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}'
 };
@@ -674,9 +675,18 @@ async function openChat(id){
  }
  const msgs=s.messages||[];
  const near=log.scrollHeight-log.scrollTop-log.clientHeight<60;
- const html=msgs.length?msgs.map(m=>'<div class="msg '+esc(m.role||'system')+'">'+esc(m.text)+
-  (m.at?'<small>'+esc(String(m.at).replace('T',' ').slice(0,19))+'</small>':'')+'</div>').join('')
-  :'<p class="hint">'+esc(T.chatNone)+'</p>';
+ /* процесс считается завершённым, когда последнее сообщение — ответ или
+    терминальный статус: тогда счётчики замирают и не тикают дальше */
+ const last=msgs[msgs.length-1]||{};
+ const terminal=last.role==='assistant'||((last.meta||{}).status&&'ok,error,failed,done,stopped,simulated,unavailable,skipped'.split(',').indexOf(String(last.meta.status))>=0);
+ const html=msgs.length?msgs.map(m=>{
+  const role=esc(m.role||'system');
+  const meta=m.meta||{};
+  const isRun=role==='system'&&(meta.status==='start'||meta.status==='running'||meta.status==='queued'||meta.status==='awaiting-approval');
+  const timer=isRun?' <span class="chattimer" data-jid="'+esc(String(m.job_id||''))+'"'+(terminal?' data-frozen="1"':'')+'>0 с</span>':'';
+  return '<div class="msg '+role+'">'+esc(m.text)+timer+
+   (m.at?'<small>'+esc(String(m.at).replace('T',' ').slice(0,19))+'</small>':'')+'</div>';
+ }).join(''):'<p class="hint">'+esc(T.chatNone)+'</p>';
  if(log._html!==html){
   log._html=html;log.innerHTML=html;
   log.scrollTop=log.scrollHeight;
@@ -685,6 +695,7 @@ async function openChat(id){
  if(title) title.textContent=s.title||s.id;
  const info=document.getElementById('chatInfo');
  if(info) info.textContent=msgs.length+' · '+String(s.updated||'').replace('T',' ').slice(0,19);
+ tickChatTimers();
 }
 async function chatNew(){
  const r=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:''})});
@@ -710,6 +721,32 @@ async function delChat(id){
  }
  await loadChats();
 }
+let chatTimerTick=null,chatTimersBase={};
+function tickChatTimers(){
+ const log=document.getElementById('chatLog');
+ if(!log) return;
+ /* замороженные (после ответа) счётчики не трогаем */
+ let live=0;
+ log.querySelectorAll('.chattimer').forEach(el=>{
+  if(el.dataset.frozen){return}
+  const jid=el.dataset.jid||'';
+  const now=Date.now();
+  if(chatTimersBase[jid]==null) chatTimersBase[jid]=now;
+  const sec=Math.max(0,Math.floor((now-chatTimersBase[jid])/1000));
+  el.textContent=''+sec+' с';
+  el.dataset.sec=String(sec);
+  live++;
+ });
+ return live;
+}
+function startChatTimers(){
+ if(chatTimerTick) return;
+ chatTimerTick=setInterval(function(){
+  const live=tickChatTimers();
+  /* останавливаем тик, когда активных задач в ленте не осталось */
+  if(!live&&chatTimerTick){clearInterval(chatTimerTick);chatTimerTick=null}
+ },1000);
+}
 async function chatSend(){
  const inp=document.getElementById('chatInput');
  const msg=document.getElementById('chatMsg');
@@ -725,36 +762,70 @@ async function chatSend(){
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }
  const job=d.job||{};
  if(msg) msg.textContent='';
+ chatTimersBase[job.id]=Date.now();
  showJobProgress(job.id, job.goal||text);
  await openChat(chatCurrent);
+ startChatTimers();
 }
-let jobTimer=null,jobSeq=0;
+let jobTimer=null,jobSeq=0,retryCount=0;
 function showJobProgress(id,goal){
  const box=document.getElementById('chatMsg');
  if(!box) return;
  const seq=++jobSeq;
- if(jobTimer){clearInterval(jobTimer);jobTimer=null}
+ retryCount=0;
  const started=Date.now();
  const render=async()=>{
   if(seq!==jobSeq) return;
-  let j=null;
-  try{const rr=await j('/api/jobs/get?id='+encodeURIComponent(id));j=rr;}catch(e){}
-  if(!j||j.error){return}
+  let jj=null;
+  try{const rr=await j('/api/jobs/get?id='+encodeURIComponent(id));jj=rr;}catch(e){}
+  if(!jj||jj.error){
+   return;
+  }
   const elapsed=Math.floor((Date.now()-started)/1000);
-  const st=j.status||'running';
-  const step=j.last_step||(st==='running'?'выполняется…':st);
+  const st=jj.status||'running';
+  const step=jj.last_step||(st==='running'?'выполняется…':st);
   if(st==='done'){
    clearInterval(jobTimer);jobTimer=null;
-   const ans=j.answer||'(без текста ответа)';
+   const ans=jj.answer||'(без текста ответа)';
    box.innerHTML='<div class="jobdone">✅ '+esc(ans)+'</div>';
    await openChat(chatCurrent);
+   chatRun();
    return;
   }
   if(st==='failed'||st==='error'||st==='stopped'){
    clearInterval(jobTimer);jobTimer=null;
-   const err=j.error||(st==='stopped'?'остановлена оператором':'задача завершилась с ошибкой');
-   box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (j.answer?'<br><br>'+esc(j.answer):'')+'</div>';
+   const err=jj.error||(st==='stopped'?'остановлена оператором':'задача завершилась с ошибкой');
+   box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (jj.answer?'<br><br>'+esc(jj.answer):'')+'</div>';
    await openChat(chatCurrent);
+   chatRun();
+   return;
+  }
+  /* нет реакции дольше 60 секунд — пробуем повторный запрос */
+  if(elapsed>=60){
+   if(retryCount<3){
+    retryCount++;
+    clearInterval(jobTimer);jobTimer=null;
+    await appendChatNote(T.chatNoReaction);
+    await appendChatNote(T.chatRetry.replace('{n}',String(retryCount)).replace('{max}','3'));
+    box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(T.chatNoReaction)+'</span><span class="jobtimer">'+elapsed+' с</span></div>';
+    const body={schema:'invr.task/1',goal:goal,session:chatCurrent};
+    try{
+     const rr=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     const dd=await rr.json();
+     if(dd.ok&&dd.job){
+      const nid=dd.job.id;
+      chatTimersBase[nid]=Date.now();
+      showJobProgress(nid,goal);
+      await openChat(chatCurrent);
+      startChatTimers();
+     }
+    }catch(e){}
+    return;
+   }
+   /* три повтора без результата — передаём лог на анализ нейросети */
+   clearInterval(jobTimer);jobTimer=null;
+   box.innerHTML='<div class="jobfail">⛔ '+esc(T.chatLogSent)+'</div>';
+   await analyzeChatLog(chatCurrent);
    return;
   }
   if(st==='awaiting-approval'){
@@ -769,6 +840,31 @@ function showJobProgress(id,goal){
  };
  render();
  jobTimer=setInterval(render,1500);
+}
+async function appendChatNote(text){
+ if(!chatCurrent||!text) return;
+ try{
+  await fetch('/api/sessions/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chatCurrent,role:'system',text:text})});
+ }catch(e){}
+}
+async function analyzeChatLog(sessionId){
+ /* собрать лог сессии и передать его нейросети через заказ-наряд фабрики */
+ if(!sessionId) return;
+ let text='';
+ try{
+  const s=await j('/api/sessions/get?id='+encodeURIComponent(sessionId));
+  if(s&&s.messages){
+   text=s.messages.map(m=>'['+(m.role||'?')+'] '+(m.text||'')).join('\\n');
+  }
+ }catch(e){}
+ if(!text) text='лог пуст';
+ const goal='Проанализируй лог чата и определи, почему фабрика не отвечает на запросы.\\n\\nЛОГ:\\n'+text;
+ await appendChatNote(T.chatLogSent);
+ try{
+  await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schema:'invr.task/1',goal:goal,session:sessionId})});
+ }catch(e){}
+ await openChat(sessionId);
+ chatRun();
 }
 (function bindChatInput(){
  const inp=document.getElementById('chatInput');
@@ -1192,6 +1288,10 @@ def _page(lang: str) -> str:
         "t_chat_none": tr("web.chat_none"),
         "t_chat_wait": tr("web.chat_wait"),
         "t_chat_sent": tr("web.chat_sent"),
+        "t_chat_timer": tr("web.chat_timer"),
+        "t_chat_no_reaction": tr("web.chat_no_reaction"),
+        "t_chat_retry": tr("web.chat_retry"),
+        "t_chat_log_sent": tr("web.chat_log_sent"),
         "t_providers": tr("web.providers"),
         "t_th_enabled": tr("web.th_enabled"),
         "t_avail": tr("web.avail"),

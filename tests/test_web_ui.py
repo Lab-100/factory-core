@@ -309,6 +309,40 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn(".msg.system{", text)
         self.assertIn("m.role||'system'", text)
 
+    def test_system_messages_aligned_left_with_bar(self) -> None:
+        """Статусные сообщения — в крайнее лево, с полоской-кантом слева,
+        без центрирования."""
+        text = page()
+        self.assertIn(".msg.system{align-self:flex-start;", text)
+        self.assertIn("border-left:4px solid #2d6cdf", text)
+        self.assertNotIn("align-self:center", text)
+
+    def test_chat_timer_ticks_and_freezes(self) -> None:
+        """В ленте есть живой счётчик, который тикает, пока идёт процесс,
+        и останавливается (data-frozen) при приходе ответа."""
+        text = page()
+        self.assertIn('class="chattimer" data-jid=', text)
+        self.assertIn("function tickChatTimers(", text)
+        self.assertIn("startChatTimers()", text)
+        self.assertIn('data-frozen="1"', text)
+
+    def test_chat_timeout_retries_and_log_analysis(self) -> None:
+        """Через 60 с без реакции — «Реакции нету», повторный запрос (до 3),
+        затем лог сессии передаётся нейросети с пометкой в чате."""
+        text = page()
+        self.assertIn("elapsed>=60", text)
+        self.assertIn("retryCount<3", text)
+        self.assertIn("T.chatNoReaction", text)
+        self.assertIn("T.chatRetry.replace", text)
+        self.assertIn("analyzeChatLog(", text)
+        self.assertIn("Проанализируй лог чата", text)
+        self.assertIn("s.messages.map(m=>'['+(m.role||'?')+'] '+(m.text||'')).join('\\n')", text)
+
+    def test_retry_labels_localized(self) -> None:
+        self.assertIn("Реакции нету. Пробую повторный запрос.", page("ru"))
+        self.assertIn("No reaction. Trying the request again.", page("en"))
+        self.assertIn("没有反应。正在重试请求。", page("zh"))
+
 
 if __name__ == "__main__":
     unittest.main()

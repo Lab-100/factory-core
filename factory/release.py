@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 
 from .i18n import make_translator
-from .paths import repo_root
+from .paths import repo_root, resolve_python
 from .settings import load as _load_settings
 
 GITHUB_API = "https://api.github.com"
@@ -111,12 +111,13 @@ def api(method: str, url: str, token: str, data=None, content_type: str | None =
 
 def build_exe(root: Path) -> None:
     """Сборка dist/factory.exe (PyInstaller) — сам ставит, если нет."""
+    python = resolve_python()
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pyinstaller"],
+        subprocess.run([python, "-m", "pip", "install", "--upgrade", "pyinstaller"],
                        check=True, timeout=600)
-    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--name", "factory",
+    cmd = [python, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--name", "factory",
            "--add-data", f"config{os.pathsep}config",
            "--add-data", f"schemas{os.pathsep}schemas",
            "--add-data", f"examples{os.pathsep}examples",

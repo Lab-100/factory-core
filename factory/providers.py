@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
+
+from .paths import resolve_python
 
 # Каталог известных сред. Для каждой — вероятные имена CLI и каталоги конфигов.
 PROVIDERS: dict[str, dict] = {
@@ -182,7 +183,7 @@ def run_command(settings, name: str) -> list[str]:
             configured = str(settings.get("providers.workai.bridge", "") or "").strip()
             if configured:
                 bridge = configured
-        python = sys.executable
+        python = resolve_python()
         if settings is not None:
             configured_python = settings.get("adapters.workai_python")
             if configured_python:

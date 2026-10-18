@@ -11,8 +11,9 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
+
+from .paths import resolve_python
 
 
 def find_repo(settings=None) -> Path | None:
@@ -73,7 +74,7 @@ def find_cli(repo: str | Path) -> list[str] | None:
     for name in ("regionctl.py", "region-spoof.py"):
         script = repo / name
         if script.exists():
-            return [sys.executable, str(script)]
+            return [resolve_python(), str(script)]
     for name in ("region-spoof.cmd", "region-spoof.bat", "region-spoof.exe"):
         binary = repo / name
         if binary.exists():

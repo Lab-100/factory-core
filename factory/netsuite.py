@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .paths import resolve_python
+
 SCHEMA = "invr.netsuite/1"
 
 # Маска секрета: открытые значения наружу не отдаём.
@@ -981,7 +983,7 @@ def apply(settings, tool_id: str | None = None) -> dict:
 def _python_arg(settings, raw: dict) -> str:
     """Интерпретатор Python: из параметров или текущий."""
     configured = str(raw.get("python") or "").strip()
-    return configured or sys.executable
+    return configured or resolve_python()
 
 
 def _run(argv: list[str], *, cwd: Path | None = None, timeout: float = 30.0,

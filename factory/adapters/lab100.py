@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from .base import Adapter, StepResult
+from ..paths import resolve_python
 
 
 class Lab100Adapter(Adapter):
@@ -29,7 +29,7 @@ class Lab100Adapter(Adapter):
         return None
 
     def _python(self) -> str:
-        return str(self.settings.get("adapters.lab100_python") or sys.executable)
+        return str(self.settings.get("adapters.lab100_python") or resolve_python())
 
     # действие фабрики -> подкоманда Lab100 CLI (у CLI нет `research`)
     _SUBCMD = {"research": "ask"}

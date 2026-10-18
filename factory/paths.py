@@ -14,6 +14,29 @@ from pathlib import Path
 FROZEN = bool(getattr(sys, "frozen", False))
 
 
+def resolve_python() -> str:
+    """Путь к настоящему интерпретатору Python для дочерних процессов.
+
+    В исходниках это ``sys.executable``. В замороженной сборке (PyInstaller)
+    ``sys.executable`` — сам исполняемый файл фабрики, поэтому ищем реальный
+    Python: сначала настройка ``FACTORY_PYTHON``, затем ``py`` (Windows),
+    затем ``python``/``python3`` из PATH. Найденный путь кэшируется.
+    """
+    if not FROZEN:
+        return sys.executable or "python"
+    cached = getattr(resolve_python, "_cached", None)
+    if cached:
+        return cached
+    for name in (os.environ.get("FACTORY_PYTHON") or "", "py", "python", "python3"):
+        if name:
+            found = shutil.which(name)
+            if found:
+                resolve_python._cached = found
+                return found
+    resolve_python._cached = "python"
+    return "python"
+
+
 def _seed_bundled(root: Path) -> None:
     meipass = Path(getattr(sys, "_MEIPASS", ""))
     if not meipass.is_dir():

@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .ledger import Ledger
-from .paths import repo_root
+from .paths import repo_root, resolve_python
 
 
 def _stamp() -> str:
@@ -81,12 +81,12 @@ class SelfHealer:
             return ["python"]
         current = Path(sys.executable or "python").name.lower()
         if current.startswith("python"):
-            return [sys.executable]
+            return [resolve_python()]
         for name in ("py", "python", "python3"):
             found = shutil.which(name)
             if found:
                 return [found]
-        return [sys.executable or "python"]
+        return [resolve_python()]
 
     @property
     def wait_interval(self) -> float:

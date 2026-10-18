@@ -1377,7 +1377,7 @@ def _handler_class():
                 job = _jobs().get(query.get("id", [""])[0])
                 if job is None:
                     return self._send({"error": "not found"}, status=404)
-                return self._send(_jobs().summary(job))
+                return self._send(job)
             if path == "/api/sessions":
                 return self._send({"sessions": SessionStore(root).list()})
             if path == "/api/sessions/get":

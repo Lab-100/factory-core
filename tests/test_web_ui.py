@@ -343,6 +343,21 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("No reaction. Trying the request again.", page("en"))
         self.assertIn("没有反应。正在重试请求。", page("zh"))
 
+    def test_chat_send_appends_user_message_immediately(self) -> None:
+        """Вопрос добавляется в ленту сразу при отправке (до ответа API) —
+        гарантированная доставка в чат, без дублей."""
+        text = page()
+        self.assertIn("async function chatSend()", text)
+        self.assertIn("chatSending", text)
+        self.assertIn("await appendChatNote(text,'user');", text)
+        self.assertIn("async function appendChatNote(text,role){", text)
+
+    def test_chat_send_goes_directly_to_workai_without_synthesis(self) -> None:
+        """Запрос из чата идёт напрямую в WorkAI (provider + synthesize:false),
+        минуя хрупкий синтез по всем провайдерам."""
+        text = page()
+        self.assertIn("constraints:{synthesize:false},inputs:{provider:'workai'}", text)
+
 
 if __name__ == "__main__":
     unittest.main()

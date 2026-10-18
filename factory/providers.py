@@ -104,9 +104,11 @@ PROVIDERS: dict[str, dict] = {
 }
 
 # Путь по умолчанию к мосту external_agent -> WorkAI (reads stdin -> prints answer).
+# Мост лежит рядом с пакетом: <factory-core>/factory/adapters/workai_bridge.py.
+# В замороженной сборке он копируется в рабочий корень (см. paths._seed_bundled).
 # Переопределяется настройкой providers.workai.bridge.
-WORKAI_BRIDGE_DEFAULT = (
-    r"C:\Users\TEKK\Documents\Codex\2026-09-01\new-chat\workai_bridge.py"
+WORKAI_BRIDGE_DEFAULT = str(
+    Path(__file__).resolve().parent / "adapters" / "workai_bridge.py"
 )
 
 # Путь по умолчанию к мосту external_agent -> Cline (reads stdin -> prints answer).
@@ -200,6 +202,14 @@ def run_command(settings, name: str) -> list[str]:
             configured = str(settings.get("providers.workai.bridge", "") or "").strip()
             if configured:
                 bridge = configured
+        # В замороженной сборке путь рядом с пакетом внутри архива не работает:
+        # берём копию моста, развёрнутую в рабочий корень (paths._seed_bundled).
+        if not os.path.isfile(str(bridge)):
+            from .paths import repo_root
+            seeded = repo_root(settings) if settings is not None else repo_root()
+            candidate = str(seeded / "workai_bridge.py")
+            if os.path.isfile(candidate):
+                bridge = candidate
         python = resolve_python()
         if settings is not None:
             configured_python = settings.get("adapters.workai_python")

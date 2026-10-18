@@ -49,6 +49,14 @@ def _seed_bundled(root: Path) -> None:
     manifest = meipass / "project.json"
     if manifest.is_file() and not (root / "project.json").exists():
         shutil.copy2(manifest, root / "project.json")
+    # Мост external_agent -> WorkAI: в исходниках лежит в пакете, а при сборке
+    # PyInstaller упаковывает его в архив. Для запуска как отдельного скрипта
+    # копируем его в рабочий корень, чтобы providers.run_command находил его.
+    bridge_src = meipass / "factory" / "adapters" / "workai_bridge.py"
+    if bridge_src.is_file():
+        bridge_dst = root / "workai_bridge.py"
+        if not bridge_dst.exists() or bridge_dst.read_bytes() != bridge_src.read_bytes():
+            shutil.copy2(bridge_src, bridge_dst)
 
 
 def user_root() -> Path:

@@ -747,16 +747,33 @@ function startChatTimers(){
   if(!live&&chatTimerTick){clearInterval(chatTimerTick);chatTimerTick=null}
  },1000);
 }
+let chatSending=false;
 async function chatSend(){
+ if(chatSending) return;
  const inp=document.getElementById('chatInput');
  const msg=document.getElementById('chatMsg');
  const text=inp?inp.value.trim():'';
  if(!text) return;
+ chatSending=true;
+ try{
+  await realChatSend(text,inp,msg);
+ }finally{
+  chatSending=false;
+ }
+}
+async function realChatSend(text,inp,msg){
  if(!chatCurrent) await chatNew();
- if(!chatCurrent) return;
+ if(!chatCurrent){ if(msg) msg.textContent=T.err; return; }
  if(inp) inp.value='';
+ /* вопрос показываем в ленте сразу, не дожидаясь ответа API — так он
+    гарантированно попадёт в чат */
+ await appendChatNote(text,'user');
+ await openChat(chatCurrent);
  if(msg) msg.textContent=T.chatWait;
- const body={schema:'invr.task/1',goal:text,session:chatCurrent};
+ /* вопрос идёт напрямую в WorkAI (мост external_agent->WorkAI), без синтеза
+    и без параллельного опроса всех провайдеров — надёжная доставка */
+ const body={schema:'invr.task/1',goal:text,session:chatCurrent,
+  constraints:{synthesize:false},inputs:{provider:'workai'}};
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }
@@ -765,6 +782,7 @@ async function chatSend(){
  chatTimersBase[job.id]=Date.now();
  showJobProgress(job.id, job.goal||text);
  await openChat(chatCurrent);
+ chatRun();
  startChatTimers();
 }
 let jobTimer=null,jobSeq=0,retryCount=0;
@@ -841,10 +859,11 @@ function showJobProgress(id,goal){
  render();
  jobTimer=setInterval(render,1500);
 }
-async function appendChatNote(text){
+async function appendChatNote(text,role){
  if(!chatCurrent||!text) return;
+ const r=role||'system';
  try{
-  await fetch('/api/sessions/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chatCurrent,role:'system',text:text})});
+  await fetch('/api/sessions/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:chatCurrent,role:r,text:text})});
  }catch(e){}
 }
 async function analyzeChatLog(sessionId){

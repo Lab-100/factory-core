@@ -173,6 +173,39 @@ class JobManagerTest(unittest.TestCase):
         self.assertIn("🔄 код (внешняя модель)… (2.0 с)", texts[0])
         self.assertIn("✅", texts[1])
 
+    def test_submit_does_not_duplicate_optimistic_user_message(self) -> None:
+        """Веб-чат добавляет вопрос в сессию сразу при отправке; submit()
+        не должен дублировать уже добавленное user-сообщение."""
+        sid = "ses-opt-1"
+        self.manager.sessions.create(session_id=sid)
+        self.manager.sessions.append(sid, "user", "мой вопрос", job_id="old")
+        job = self.manager.submit(
+            {"goal": "мой вопрос", "capabilities": ["answer"],
+             "dry_run": True, "session": sid})
+        self._wait(job["id"], TERMINAL)
+        s = self.manager.sessions.get(sid)
+        user_msgs = [m for m in s["messages"]
+                     if m["role"] == "user" and m["text"] == "мой вопрос"]
+        self.assertEqual(len(user_msgs), 1, "вопрос продублирован")
+
+    def test_new_bridge_has_stdin_and_orphan_cleanup(self) -> None:
+        """Мост external_agent->WorkAI: нативный stdin-режим (надёжная
+        доставка вопроса) и распознавание осиротевших окон WorkAI."""
+        import importlib.util
+        from pathlib import Path
+        bridge_path = (Path(__file__).resolve().parent.parent
+                       / "factory" / "adapters" / "workai_bridge.py")
+        self.assertTrue(bridge_path.exists(), "workai_bridge.py должен лежать в пакете")
+        src = bridge_path.read_text(encoding="utf-8")
+        self.assertIn("[WORKAI, \"chat\", prompt, \"-\"", src)
+        self.assertIn("_workai_orphans", src)
+        spec = importlib.util.spec_from_file_location("workai_bridge", bridge_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertTrue(hasattr(mod, "_workai_orphans"))
+        self.assertTrue(hasattr(mod, "_kill_tree"))
+        self.assertTrue(hasattr(mod, "launch_workai_native"))
+
 
 class StepResultStub:
     ok = True

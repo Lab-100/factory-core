@@ -148,8 +148,15 @@ class JobManager:
         session_id = str(payload.get("session") or "")
         if session_id:
             job["session"] = session_id
-            self.sessions.ensure(session_id)
-            self.sessions.append(session_id, "user", job["goal"], job_id=job_id)
+            created = self.sessions.ensure(session_id)
+            # Вопрос уже добавлен в сессию оптимистично (веб-чат добавляет его
+            # сразу при отправке) — не дублируем его здесь.
+            already = any(
+                m.get("role") == "user" and m.get("text") == job["goal"]
+                for m in (created or {}).get("messages", [])
+            )
+            if not already:
+                self.sessions.append(session_id, "user", job["goal"], job_id=job_id)
             with self._lock:
                 self._persist(job)
         threading.Thread(target=self._run, args=(job_id, payload), daemon=True).start()

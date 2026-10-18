@@ -73,6 +73,25 @@ DEFAULT_SERVICES: dict[str, dict] = {
         "tags": ["mcp", "scrape"],
         "docker": False,
     },
+    "webchat": {
+        # Браузерные веб-чаты (DeepSeek, GigaChat, Qwen, Яндекс/Алиса):
+        # локальный HTTP-демон browser-chats. Адаптер web_chat фабрики
+        # обращается к нему по POST /api/ask. Супервизор поднимает и держит
+        # службу, как Ollama/browsertool. Путь к скрипту и дополнительные
+        # аргументы переопределяются настройкой [services.webchat] start
+        # в settings.toml (здесь — переносимый дефолт для исходников).
+        "title": "webchat (браузерные чаты)",
+        "kind": "http",
+        "url": "http://127.0.0.1:8120/api/health",
+        "owner": "factory",
+        "enabled": True,
+        # Переносится за счёт resolve_python() и каталога рядом с репозиторием;
+        # реальный путь к webchat_service.py задаётся в config/settings.toml.
+        "start": [],
+        "stop": [],
+        "tags": ["chat", "browser"],
+        "docker": False,
+    },
     "opencode": {
         "title": "OpenCode",
         "kind": "process",

@@ -158,6 +158,16 @@ path = "state/arsenal.json"
 # РСЃРєР»СЋС‡РµРЅРѕ (РїСЂРѕРµРєС‚ Р±РµР· Docker): docker, gordon, model-runner вЂ” РїРѕРєР°Р·Р°РЅС‹
 # РєР°Рє В«unloadedВ», Р° РЅРµ РєР°Рє СЃР±РѕР№.
 
+
+[services.webchat]
+title = "webchat (brauzernye chaty): lokalnyj HTTP-demon browser-chats"
+kind = "http"
+url = "http://127.0.0.1:8120/api/health"
+owner = "factory"
+enabled = true
+start = ["python", "C:/Users/TEKK/Documents/MultiTool/HomeChats/Chat-30/browser-chats/python/webchat_service.py"]
+stop = []
+tags = ["chat", "browser"]
 [providers]
 # РџРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ РІРЅРµС€РЅРёС… РР: РІСЃС‚СЂРѕРµРЅРЅС‹Рµ Р±РµСЃРїР»Р°С‚РЅС‹Рµ Р°СЃСЃРёСЃС‚РµРЅС‚С‹ СЃСЂРµРґ СЂР°Р·СЂР°Р±РѕС‚РєРё.
 # РЎРїРёСЃРѕРє Рё СЃРѕСЃС‚РѕСЏРЅРёРµ: `factory providers list`; РІРєР»СЋС‡РёС‚СЊ: `factory providers
@@ -171,11 +181,11 @@ path = "state/arsenal.json"
 auto_route = true           # true вЂ” РЅР°РїСЂР°РІР»СЏС‚СЊ code/answer/deep-research РІРѕ РІРЅРµС€РЅРёР№ Р°РіРµРЅС‚
 
 [providers.claude-code]
-enabled = false
+enabled = true
 command = "C:\\Users\\TEKK\\.devstation\\tools\\agent-bridges\\agent-rotate.cmd"
 
 [providers.opencode]
-enabled = false
+enabled = true
 
 [providers.cursor]
 enabled = false
@@ -193,7 +203,7 @@ enabled = false
 enabled = false
 
 [providers.workai]
-enabled = true
+enabled = false
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge.py"
 
@@ -217,6 +227,10 @@ models = [
   "cline|poolside/laguna-s-2.1:free",
   "cline|xingchen-agi/xing4.0-29b-a4b:free",
 ]
+
+[providers.pollinations]
+enabled = true
+command = "C:\\Users\\TEKK\\.devstation\\tools\\agent-bridges\\pollinations-bridge.cmd"
 
 [routing]
 # РќР°РїСЂР°РІР»РµРЅРёРµ РєРѕРјРїРµС‚РµРЅС†РёР№ РЅР° Р°РґР°РїС‚РµСЂ (РїРµСЂРµРєСЂС‹РІР°РµС‚ РІСЃС‚СЂРѕРµРЅРЅСѓСЋ РјР°СЂС€СЂСѓС‚РёР·Р°С†РёСЋ).

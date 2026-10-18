@@ -75,6 +75,13 @@ PROVIDERS: dict[str, dict] = {
         "paths": ["~/.multitool"],
         "run": ["multitool", "run"],
     },
+    "pollinations": {
+        "title": "Pollinations",
+        "commands": ["pollinations-bridge"],
+        "paths": [],
+        # промпт на stdin, ответ в stdout (OpenAI-совместимый эндпоинт).
+        "run": ["bridge"],
+    },
     "cline": {
         "title": "Cline",
         "commands": ["cline", "cline-cli"],

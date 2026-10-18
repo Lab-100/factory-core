@@ -9,6 +9,7 @@ Void, Zen, workAI, MultiTool) и возвращает его ответ. Про�
 from __future__ import annotations
 
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .. import providers
 from .base import Adapter, StepResult
@@ -36,60 +37,130 @@ class ExternalAgentAdapter(Adapter):
             return next((item for item in candidates if item["name"] == wanted), None)
         return candidates[0] if candidates else None
 
+    @staticmethod
+    def _execute(command: list, prompt: str, prompt_arg: bool, timeout: int) -> tuple[int, str]:
+        cmd = [*command, prompt] if prompt_arg else command
+        try:
+            if prompt_arg:
+                proc = subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=timeout, encoding="utf-8",
+                                      errors="replace")
+            else:
+                proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
+                                      timeout=timeout, encoding="utf-8",
+                                      errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            return -1, str(exc)
+        return proc.returncode, (proc.stdout or "")
+
     def run(self, action: str, params: dict, dry_run: bool = False) -> StepResult:
         provider = self._pick(params)
         prompt = str(params.get("prompt") or params.get("query") or "")
         if provider is None:
             return StepResult(False, "unavailable", self.name, action,
                               error="нет включённых внешних провайдеров")
+        synthesize = bool(params.get("synthesize"))
         variants = providers.run_commands(self.settings, provider["name"])
         if dry_run:
             return StepResult(True, "simulated", self.name, action,
                               {"provider": provider["name"],
                                "command": variants[0] if variants else [],
                                "commands": variants,
+                               "synthesize": synthesize,
                                "prompt": prompt[:200]})
         if not variants:
             return StepResult(False, "unavailable", self.name, action,
                               {"provider": provider["name"]},
                               error="команда провайдера не найдена")
-        prompt_arg = bool(provider.get("prompt_arg"))
         timeout = int(params.get("timeout_s", 180))
+        prompt_arg = bool(provider.get("prompt_arg"))
+
+        if not synthesize:
+            return self._run_single(provider["name"], variants, prompt,
+                                    prompt_arg, timeout, action)
+        # Синтез: опросить несколько исполнителей параллельно и свести ответы оркестратором.
+        synth_timeout = int(params.get("synth_timeout_s", 60))
+        names = [p["name"] for p in providers.enabled(self.settings)]
+        wanted = int(params.get("synthesize_count", 3))
+        answers: dict[str, str] = {}
+        tried = 0
+
+        def _probe(pname: str) -> tuple[str, str] | None:
+            p_provider = next((p for p in providers.enabled(self.settings)
+                               if p["name"] == pname), None)
+            p_arg = bool(p_provider.get("prompt_arg")) if p_provider else False
+            for cmd in providers.run_commands(self.settings, pname):
+                rc, raw = self._execute(cmd, prompt, p_arg, synth_timeout)
+                if rc == 0:
+                    content = (providers.extract_cline_text(raw)
+                               if pname == "cline" else raw.strip())
+                    if content:
+                        return pname, content[:3000]
+            return None
+
+        with ThreadPoolExecutor(max_workers=max(2, min(4, len(names)))) as pool:
+            futures = [pool.submit(_probe, pn) for pn in names]
+            for fut in as_completed(futures):
+                if len(answers) >= wanted:
+                    break
+                try:
+                    got = fut.result()
+                except Exception:  # noqa: BLE001
+                    continue
+                if got and got[0] not in answers:
+                    answers[got[0]] = got[1]
+                    tried += 1
+        if not answers:
+            return StepResult(False, "error", self.name, action,
+                              {"provider": provider["name"], "tried": tried},
+                              error="все исполнители не дали ответа для синтеза")
+        parts = "\n\n".join(f"Ответ нейросети {i + 1} ({name}):\n{text}"
+                            for i, (name, text) in enumerate(answers.items()))
+        synth_prompt = (
+            "Ты — оркестратор. Несколько нейросетей ответили на один вопрос. "
+            "Проанализируй их ответы, отбрось ошибки и повторы, и дай ЕДИНЫЙ "
+            "итоговый ответ на исходный вопрос. Вопрос:\n"
+            f"{prompt}\n\n{parts}"
+        )
+        orchestrator = variants[0]
+        rc, raw = self._execute(orchestrator, synth_prompt, prompt_arg, timeout)
+        if rc != 0:
+            return StepResult(False, "error", self.name, action,
+                              {"provider": provider["name"], "tried": tried},
+                              error=(raw or "")[:500] or "оркестратор не ответил")
+        content = (providers.extract_cline_text(raw)
+                   if provider["name"] == "cline" else raw.strip())
+        if not content:
+            return StepResult(False, "error", self.name, action,
+                              {"provider": provider["name"]},
+                              error="оркестратор вернул пустой ответ")
+        return StepResult(True, "ok", self.name, action,
+                          {"provider": provider["name"], "synthesized": True,
+                           "sources": list(answers.keys()),
+                           "content": content[:4000], "tried": tried})
+
+    def _run_single(self, pname: str, variants: list, prompt: str,
+                    prompt_arg: bool, timeout: int, action: str) -> StepResult:
         last_error = ""
         last_code = None
         tried = 0
         for command in variants:
             tried += 1
-            cmd = [*command, prompt] if prompt_arg else command
-            try:
-                if prompt_arg:
-                    proc = subprocess.run(cmd, capture_output=True, text=True,
-                                          timeout=timeout, encoding="utf-8",
-                                          errors="replace")
-                else:
-                    proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
-                                          timeout=timeout, encoding="utf-8",
-                                          errors="replace")
-            except Exception as exc:  # noqa: BLE001
-                last_error = str(exc)
-                continue
-            if proc.returncode == 0:
-                raw = proc.stdout or ""
-                if provider["name"] == "cline":
-                    content = providers.extract_cline_text(raw)
-                else:
-                    content = raw.strip()
+            rc, raw = self._execute(command, prompt, prompt_arg, timeout)
+            if rc == 0:
+                content = (providers.extract_cline_text(raw)
+                           if pname == "cline" else raw.strip())
                 if content:
                     return StepResult(True, "ok", self.name, action,
-                                      {"provider": provider["name"],
+                                      {"provider": pname,
                                        "content": content[:4000],
                                        "tried": tried})
                 last_error = "пустой ответ"
-                last_code = proc.returncode
+                last_code = rc
                 continue
-            last_error = (proc.stderr or "").strip()[:500] or f"код возврата {proc.returncode}"
-            last_code = proc.returncode
+            last_error = raw.strip()[:500] or f"код возврата {rc}"
+            last_code = rc
         return StepResult(False, "error", self.name, action,
-                          {"provider": provider["name"], "returncode": last_code,
+                          {"provider": pname, "returncode": last_code,
                            "tried": tried},
                           error=last_error or "все модели не сработали")

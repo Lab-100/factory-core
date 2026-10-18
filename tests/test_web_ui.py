@@ -292,6 +292,23 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("font-size:17px;line-height:1.55", text)
         self.assertIn(".chatrow input{flex:1;font-size:17px;min-height:48px", text)
 
+    def test_chat_live_status_indicator(self) -> None:
+        """В шапке чата есть живой индикатор: что выполняется, сколько
+        времени прошло, модель; лента опрашивается и обновляется сама."""
+        text = page()
+        self.assertIn('id="chatRun"', text)
+        self.assertIn("function chatRun(", text)
+        self.assertIn("jobs.find(x=>x.session===chatCurrent)", text)
+        self.assertIn("chatRun()", text)
+        # автообновление ленты раз в 3 секунды
+        self.assertIn("openChat(chatCurrent);chatRun()", text)
+
+    def test_system_messages_rendered_in_chat(self) -> None:
+        """Статусные (системные) сообщения отображаются отдельным стилем."""
+        text = page()
+        self.assertIn(".msg.system{", text)
+        self.assertIn("m.role||'system'", text)
+
 
 if __name__ == "__main__":
     unittest.main()

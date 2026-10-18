@@ -130,6 +130,55 @@ class JobManagerTest(unittest.TestCase):
         self.assertEqual(self.manager.heal_stuck(600), [])
         self.assertEqual(self.manager.get(done["id"])["status"], "done")
 
+    def test_session_receives_status_messages_and_answer(self) -> None:
+        """Чат получает сообщения-статусы (что происходит, какая модель,
+        сколько времени) и итоговый ответ с указанием модели и длительности."""
+        job = self.manager.submit(
+            {"goal": "ответь одним словом", "capabilities": ["answer"],
+             "dry_run": True, "session": "ses-chat-1"})
+        session = self.manager.sessions.ensure("ses-chat-1")
+        self.assertIsNotNone(session)
+        done = self._wait(job["id"], TERMINAL)
+        # перечитываем сессию после завершения задачи
+        session = self.manager.sessions.get("ses-chat-1")
+        self.assertIsNotNone(session)
+        messages = session["messages"]
+        # пользовательское сообщение появилось сразу при запуске
+        self.assertTrue(any(m["role"] == "user" for m in messages))
+        # промежуточные статусы (система) есть
+        self.assertTrue(any(m["role"] == "system" for m in messages))
+        # финальное сообщение ассистента — есть
+        final = [m for m in messages if m["role"] == "assistant"]
+        self.assertTrue(final, "в сессии нет итогового сообщения ассистента")
+        self.assertEqual(done["status"], "done")
+        text = final[-1]["text"]
+        self.assertIn("Задача выполнена", text)
+        self.assertIn("с", text)  # длительность в секундах указана
+
+    def test_session_step_notes_deduplicated(self) -> None:
+        """Промежуточные статусы пишутся один раз на фазу шага (не дублируются)."""
+        job = {"id": "job-dedup", "session": "ses-dedup",
+               "created": "2026-10-19T00:00:00+00:00", "elapsed": 2.0}
+        self.manager.sessions.create(session_id="ses-dedup")
+        noted: set = set()
+        self.manager._session_step_note(job, "code (external_agent)", False,
+                                        "start", None, noted)
+        self.manager._session_step_note(job, "code (external_agent)", False,
+                                        "start", None, noted)
+        self.manager._session_step_note(job, "code (external_agent)", False,
+                                        "ok", StepResultStub(), noted)
+        s = self.manager.sessions.get("ses-dedup")
+        self.assertEqual(len(s["messages"]), 2)
+        texts = [m["text"] for m in s["messages"]]
+        self.assertIn("🔄 код (внешняя модель)… (2.0 с)", texts[0])
+        self.assertIn("✅", texts[1])
+
+
+class StepResultStub:
+    ok = True
+    output = {"provider": "cline"}
+    error = None
+
 
 if __name__ == "__main__":
     unittest.main()

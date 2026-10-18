@@ -44,6 +44,24 @@ def _answer_text(result: dict) -> str:
     return text
 
 
+def _model_names(result: dict) -> list[str]:
+    """Имена моделей/провайдеров, реально ответивших на шагах задачи."""
+    if not isinstance(result, dict):
+        return []
+    found: list[str] = []
+    results = result.get("results") or []
+    for r in results:
+        if not isinstance(r, dict) or not r.get("ok"):
+            continue
+        out = r.get("output") or {}
+        if not isinstance(out, dict):
+            continue
+        name = str(out.get("provider") or out.get("model") or "").strip()
+        if name and name not in found:
+            found.append(name)
+    return found
+
+
 class JobManager:
     def __init__(self, root: str | Path):
         self.root = Path(root)
@@ -160,6 +178,9 @@ class JobManager:
             job["status"] = "running"
             job["last_step"] = "запуск…"
             self._persist(job)
+            self._session_note(job, "система", "задача запущена, ждём очередь…",
+                                status="queued")
+            _noted: set[tuple] = set()
 
             def on_step(step, res, phase) -> None:
                 # phase: start | ok | error | unavailable | skipped | awaiting-approval | simulated
@@ -168,13 +189,18 @@ class JobManager:
                     cap = getattr(step, "capability", "") or ""
                     adapter = getattr(step, "adapter", "") or ""
                     step_name = f"{cap} ({adapter})" if cap and adapter else (cap or adapter)
+                is_synth = bool(getattr(step, "params", {}).get("synthesize")) if step is not None else False
                 if phase == "start":
-                    job["last_step"] = f"выполняется: {step_name}…"
+                    if is_synth:
+                        job["last_step"] = "оркестратор: сбор ответов нейросетей…"
+                    else:
+                        job["last_step"] = f"выполняется: {step_name}…"
                 else:
                     ok = bool(getattr(res, "ok", False)) if res is not None else False
                     status = getattr(res, "status", phase) if res is not None else phase
                     if ok:
-                        job["last_step"] = f"готово: {step_name}"
+                        job["last_step"] = ("готово: синтез ответов (оркестратор)"
+                                            if is_synth else f"готово: {step_name}")
                     else:
                         err = getattr(res, "error", None) if res is not None else None
                         job["last_step"] = f"отказ на шаге {step_name}" + (f": {err}" if err else "")
@@ -186,6 +212,7 @@ class JobManager:
                 except (ValueError, TypeError):
                     pass
                 self._persist(job)
+                self._session_step_note(job, step_name, is_synth, phase, res, _noted)
 
             result = dispatcher.execute(task, approve=approve,
                                         dry_run=job["dry_run"], on_step=on_step)
@@ -203,6 +230,60 @@ class JobManager:
             self._persist(job)
             self._record_session(job)
 
+    def _session_note(self, job: dict, role: str, text: str,
+                      status: str | None = None) -> None:
+        """Записать служебную заметку в привязанную сессию (если есть)."""
+        session_id = job.get("session")
+        if not session_id:
+            return
+        meta: dict = {}
+        if status:
+            meta["status"] = status
+        if job.get("elapsed") is not None:
+            meta["elapsed"] = job["elapsed"]
+        try:
+            self.sessions.append(str(session_id), str(role), str(text),
+                                 job_id=job.get("id"), meta=meta or None)
+        except OSError:
+            pass
+
+    def _session_step_note(self, job: dict, step_name: str, is_synth: bool,
+                           phase: str, res, noted: set) -> None:
+        """Промежуточный статус шага в чат: что происходит, какая модель,
+        сколько прошло времени. Пишется один раз на фазу шага."""
+        session_id = job.get("session")
+        if not session_id:
+            return
+        elapsed = job.get("elapsed")
+        wait = f" ({elapsed} с)" if isinstance(elapsed, (int, float)) else ""
+        key = (job.get("id"), step_name, phase)
+        if key in noted:
+            return
+        model = ""
+        if res is not None:
+            out = getattr(res, "output", None) or {}
+            if isinstance(out, dict):
+                model = str(out.get("provider") or out.get("model") or "").strip()
+        shown = step_name.replace("code (external_agent)", "код (внешняя модель)")
+        if phase == "start":
+            if is_synth:
+                text = f"🔄 синтез ответов нейросетей…{wait}"
+            else:
+                text = f"🔄 {shown}…{wait}"
+        else:
+            ok = bool(getattr(res, "ok", False)) if res is not None else False
+            if ok:
+                text = f"✅ {shown} — готово{wait}"
+                if model:
+                    text += f" (модель: {model})"
+            else:
+                err = getattr(res, "error", None) if res is not None else None
+                tail = f": {err}" if err else ""
+                text = f"❌ {shown}{tail}{wait}"
+        if text:
+            noted.add(key)
+            self._session_note(job, "система", text, status=phase)
+
     def _record_session(self, job: dict) -> None:
         """Записать итог задачи в привязанную сессию (если есть)."""
         session_id = job.get("session")
@@ -211,12 +292,23 @@ class JobManager:
         result = job.get("result") or {}
         status = job.get("status")
         answer = _answer_text(result)
+        elapsed = job.get("elapsed")
+        wait = f" за {elapsed} с" if isinstance(elapsed, (int, float)) else ""
+        model = _model_names(result)
 
-        if status == "done" and answer:
-            # прямой ответ нейросетей — главное сообщение в чат
+        done = status == "done"
+        head = "✅ Задача выполнена" if done else f"Задача {job.get('id')}: {status}"
+        if model:
+            head += f" — модель(и): {', '.join(model)}"
+        if wait:
+            head += wait
+
+        if done and answer:
             lines = [answer]
+            if model or elapsed is not None:
+                lines.append(f"\n— {head}")
         else:
-            lines = [f"Задача {job.get('id')}: {status}"]
+            lines = [head]
             if job.get("error"):
                 lines.append(f"отказ: {job['error']}")
             elif status == "failed":

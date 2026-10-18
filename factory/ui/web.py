@@ -194,6 +194,9 @@ _TEMPLATE = """<!doctype html>
   .chathead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;min-width:0}
   .chathead b{color:#fff;font-weight:600;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
   .chathead .hint{font-size:14px;white-space:nowrap}
+  .chatrun{color:#e5c07b;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .chatrun.done{color:#5ddc7d}
+  .chatrun.err{color:#e06c75}
   .chatlog{flex:1;min-height:0;overflow-y:auto;border:1px solid #262b36;border-radius:10px;padding:16px 18px;background:#0b0e13;display:flex;flex-direction:column;gap:10px}
   .msg{max-width:92%;padding:12px 16px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px;line-height:1.55}
   .msg.user{align-self:flex-end;background:#1d3a63;border:1px solid #2d6cdf}
@@ -243,7 +246,7 @@ _TEMPLATE = """<!doctype html>
     </div>
    </aside>
    <div class="chatmain">
-    <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span></div>
+    <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span><span class="hint chatrun" id="chatRun"></span></div>
     <div class="chatlog" id="chatLog"></div>
     <div class="chatrow">
      <input id="chatInput" placeholder="{{t_chat_ph}}" autocomplete="off">
@@ -632,6 +635,31 @@ async function loadChats(){
  const max=Math.max(0,chatItems.length-CHAT_PAGE);
  if(chatOffset>max) chatOffset=max;
  renderChats();
+}
+function chatRun(){
+ const el=document.getElementById('chatRun');
+ if(!el) return;
+ if(!chatCurrent){el.textContent='';el.className='hint chatrun';return}
+ j('/api/jobs').then(r=>{
+  const jobs=r.jobs||[];
+  const jj=jobs.find(x=>x.session===chatCurrent);
+  if(!jj){el.textContent='';el.className='hint chatrun';return}
+  const st=jj.status||'';
+  const wait=(typeof jj.elapsed==='number')?(' · '+jj.elapsed+' с'):'';
+  const step=jj.last_step||'';
+  if(st==='done'){
+   el.textContent='✓ готово'+wait;
+   el.className='hint chatrun done';
+  }else if(st==='error'||st==='failed'||st==='stopped'){
+   el.textContent=st+(jj.error?': '+jj.error:'')+wait;
+   el.className='hint chatrun err';
+  }else if(st==='running'||st==='queued'||st==='awaiting-approval'){
+   el.textContent='⏳ '+(step||st)+wait;
+   el.className='hint chatrun';
+  }else{
+   el.textContent='';el.className='hint chatrun';
+  }
+ }).catch(function(){});
 }
 async function openChat(id){
  chatCurrent=id;
@@ -1063,7 +1091,7 @@ setInterval(function(){loadSessions();loadCatalog();},30000);
 setInterval(function(){
  if(!document.body.classList.contains('view-chat')) return;
  loadChats();
- if(chatCurrent) openChat(chatCurrent);
+ if(chatCurrent){openChat(chatCurrent);chatRun()}
 },3000);
 </script></body></html>"""
 

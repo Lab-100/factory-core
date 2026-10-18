@@ -220,10 +220,18 @@ class ChatTabTest(unittest.TestCase):
     def test_list_navigation_up_down(self) -> None:
         text = page()
         self.assertIn("function chatShift(", text)
+        self.assertIn("id=\"chatUp\"", text)
+        self.assertIn("id=\"chatDown\"", text)
         self.assertIn("chatShift(-1)", text)
         self.assertIn("chatShift(1)", text)
         # навигация сдвигает окно по списку, а не перерисовывает разметку
         self.assertIn("Math.max(0,Math.min(chatOffset+dir,max))", text)
+
+    def test_list_navigation_edges_disabled(self) -> None:
+        """На границах списка кнопки вверх/вниз блокируются."""
+        text = page()
+        self.assertIn("up.disabled=chatOffset<=0", text)
+        self.assertIn("down.disabled=chatOffset>=Math.max(0,total-CHAT_PAGE)", text)
 
     def test_new_and_delete_buttons(self) -> None:
         text = page()

@@ -187,7 +187,8 @@ _TEMPLATE = """<!doctype html>
   .chatbtn.on{border-color:#2d6cdf;background:#1b2130;color:#fff}
   .chatdel{background:#3a2027;color:#e06c75;border:1px solid #6b2f34;min-width:44px;font-size:16px;padding:2px 6px}
   .chatpager{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:4px}
-  .chatpager button{min-width:56px;font-size:20px;min-height:44px}
+  .chatpager button{min-width:56px;font-size:14px;min-height:44px;padding:6px 10px;white-space:nowrap}
+  .chatpager button:disabled{opacity:.4;cursor:default;filter:none}
   .chatpager .hint{font-size:14px}
   .chatmain{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;height:100%}
   .chathead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;min-width:0}
@@ -229,9 +230,9 @@ _TEMPLATE = """<!doctype html>
     <button class="chatnew" onclick="chatNew()">{{t_chat_new}}</button>
     <div class="chatitems" id="chatList"></div>
     <div class="chatpager">
-     <button onclick="chatShift(-1)" title="{{t_chat_up}}" aria-label="{{t_chat_up}}">↑</button>
+     <button id="chatUp" onclick="chatShift(-1)" title="{{t_chat_up}}" aria-label="{{t_chat_up}}">↑ {{t_chat_up}}</button>
      <span class="hint" id="chatPageInfo">0 / 0</span>
-     <button onclick="chatShift(1)" title="{{t_chat_down}}" aria-label="{{t_chat_down}}">↓</button>
+     <button id="chatDown" onclick="chatShift(1)" title="{{t_chat_down}}" aria-label="{{t_chat_down}}">{{t_chat_down}} ↓</button>
     </div>
    </aside>
    <div class="chatmain">
@@ -614,6 +615,9 @@ function renderChats(){
  ).join(''):'<p class="hint">'+esc(T.chatEmpty)+'</p>';
  const info=document.getElementById('chatPageInfo');
  if(info) info.textContent=total?(chatOffset+1)+'–'+Math.min(chatOffset+CHAT_PAGE,total)+' / '+total:'0 / 0';
+ const up=document.getElementById('chatUp'),down=document.getElementById('chatDown');
+ if(up) up.disabled=chatOffset<=0;
+ if(down) down.disabled=chatOffset>=Math.max(0,total-CHAT_PAGE);
 }
 async function loadChats(){
  const r=await j('/api/sessions');

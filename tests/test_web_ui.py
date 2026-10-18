@@ -353,9 +353,11 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("async function appendChatNote(text,role){", text)
 
     def test_chat_send_goes_directly_to_workai_without_synthesis(self) -> None:
-        """Запрос из чата идёт напрямую в WorkAI (provider + synthesize:false),
-        минуя хрупкий синтез по всем провайдерам."""
+        """Запрос из чата идёт напрямую в WorkAI одним шагом answer
+        (provider + synthesize:false + capabilities:['answer']),
+        минуя code-шаг и хрупкий синтез по всем провайдерам."""
         text = page()
+        self.assertIn("capabilities:['answer']", text)
         self.assertIn("constraints:{synthesize:false},inputs:{provider:'workai'}", text)
 
 

@@ -42,7 +42,7 @@ class ProviderDiscoveryTest(unittest.TestCase):
 
     def test_catalog_names(self) -> None:
         for name in ("opencode", "claude-code", "cursor", "windsurf", "void",
-                     "zen", "workai", "multitool"):
+                     "zen", "workai", "multitool", "cline"):
             self.assertIn(name, providers.names())
 
     def test_found_command_marks_available(self) -> None:

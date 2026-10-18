@@ -2,7 +2,7 @@
 
 Фабрика автономна (Lab100 / INVR / локальная LLM), но умеет и подключаться к
 уже установленным средам разработки — OpenCode, Claude Code, Cursor, Windsurf,
-Void, Zen, workAI, MultiTool: их встроенные бесплатные ассистенты можно
+Void, Zen, workAI, MultiTool, Cline: их встроенные бесплатные ассистенты можно
 «включить» и направить на них компетенции (`routing.answer = "external_agent"`).
 
 Модуль только находит и переключает провайдеров: он ничего не запускает сам.
@@ -22,6 +22,7 @@ from pathlib import Path
 
 # Каталог известных сред. Для каждой — вероятные имена CLI и каталоги конфигов.
 PROVIDERS: dict[str, dict] = {
+    # Провайдеры ответов/компетенций — см. также адаптер external_agent.
     "opencode": {
         "title": "OpenCode",
         "commands": ["opencode"],
@@ -73,12 +74,25 @@ PROVIDERS: dict[str, dict] = {
         "paths": ["~/.multitool"],
         "run": ["multitool", "run"],
     },
+    "cline": {
+        "title": "Cline",
+        "commands": ["cline", "cline-cli"],
+        "paths": ["~/AppData/Local/Cline", "~/.cline"],
+        "run": ["cline", "run"],
+    },
 }
 
 # Путь по умолчанию к мосту external_agent -> WorkAI (reads stdin -> prints answer).
 # Переопределяется настройкой providers.workai.bridge.
 WORKAI_BRIDGE_DEFAULT = (
     r"C:\Users\TEKK\Documents\Codex\2026-09-01\new-chat\workai_bridge.py"
+)
+
+# Путь по умолчанию к мосту external_agent -> Cline (reads stdin -> prints answer).
+# По умолчанию мост лежит рядом с module: <factory-core>/factory/adapters/cline_bridge.py.
+# Переопределяется настройкой providers.cline.bridge.
+CLINE_BRIDGE_DEFAULT = str(
+    Path(__file__).resolve().parent / "adapters" / "cline_bridge.py"
 )
 
 
@@ -166,6 +180,26 @@ def run_command(settings, name: str) -> list[str]:
             if configured_python:
                 python = str(configured_python)
         return [python, bridge]
+
+    if str(name) == "cline":
+        # Спец-маркер: запуск через мост, который читает промпт из stdin и
+        # возвращает ответ Cline в stdout (CLI Cline принимает промпт
+        # аргументом, а не из stdin, поэтому нужен посредник).
+        bridge = CLINE_BRIDGE_DEFAULT
+        if settings is not None:
+            configured = str(settings.get("providers.cline.bridge", "") or "").strip()
+            if configured:
+                bridge = configured
+        command = None
+        configured = _configured_command(settings, name)
+        if configured:
+            command = _which(configured) or configured
+        else:
+            info = provider_info(settings, name)
+            command = info.get("command")
+        if not command:
+            return []
+        return [sys.executable, bridge, command]
 
     configured = _configured_command(settings, name)
     if configured:

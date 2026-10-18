@@ -197,6 +197,13 @@ enabled = true
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge.py"
 
+[providers.cline]
+# Провайдер Cline (CLI). Промпт подаётся через мост cline_bridge.py
+# (см. factory/adapters/cline_bridge.py): он читает stdin и вызывает Cline,
+# возвращая ответ в stdout. Мост можно переопределить через providers.cline.bridge.
+enabled = true
+command = "C:\\Users\\TEKK\\AppData\\Local\\Cline\\cline-cli.exe"
+
 [routing]
 # Направление компетенций на адаптер (перекрывает встроенную маршрутизацию).
 # Формат: <адаптер> или <адаптер>:<действие>. Пример:

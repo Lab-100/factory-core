@@ -168,7 +168,7 @@ _TEMPLATE = """<!doctype html>
   .kvs b{color:#9ad1ff;font-weight:500}
   /* вкладки верхнего уровня: чат / пульт (чат — дополнительная, пульт открыт по умолчанию) */
   .vtabs{display:flex;gap:6px;margin-top:10px}
-  .vtab{background:#0f1115;color:#9ad1ff;border:1px solid #262b36;border-radius:8px;padding:8px 18px;font-size:14px;min-height:36px;cursor:pointer;font-family:inherit}
+  .vtab{background:#0f1115;color:#9ad1ff;border:1px solid #262b36;border-radius:8px;padding:8px 18px;font-size:14px;min-height:36px;cursor:pointer;font-family:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vtab:hover{border-color:#2d6cdf}
   .vtab.on{background:#2d6cdf;color:#fff;border-color:#2d6cdf}
   main > section[data-view=chat]{display:none}
@@ -180,20 +180,20 @@ _TEMPLATE = """<!doctype html>
   body.view-chat #chatSec{padding:14px 18px}
   .chatwrap{display:grid;grid-template-columns:320px minmax(0,1fr);gap:16px;min-width:0;height:calc(100vh - 170px);min-height:420px}
   .chatlist{display:flex;flex-direction:column;gap:8px;min-width:0}
-  .chatnew{width:100%;font-size:15px;padding:12px 14px}
+  .chatnew{width:100%;font-size:15px;padding:12px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chatitems{display:flex;flex-direction:column;gap:8px;min-width:0;overflow-y:auto}
   .chatitem{display:flex;gap:6px;align-items:stretch;min-width:0}
   .chatbtn{flex:1;min-width:0;text-align:left;background:#0f1115;border:1px solid #262b36;color:#e6e6e6;padding:12px 14px;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .chatbtn.on{border-color:#2d6cdf;background:#1b2130;color:#fff}
-  .chatdel{background:#3a2027;color:#e06c75;border:1px solid #6b2f34;min-width:44px;font-size:16px;padding:2px 6px}
+  .chatdel{background:#3a2027;color:#e06c75;border:1px solid #6b2f34;min-width:44px;font-size:16px;padding:2px 6px;white-space:nowrap}
   .chatpager{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:4px}
-  .chatpager button{min-width:56px;font-size:14px;min-height:44px;padding:6px 10px;white-space:nowrap}
+  .chatpager button{min-width:56px;font-size:14px;min-height:44px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chatpager button:disabled{opacity:.4;cursor:default;filter:none}
-  .chatpager .hint{font-size:14px}
+  .chatpager .hint{font-size:14px;white-space:nowrap}
   .chatmain{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;height:100%}
   .chathead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;min-width:0}
-  .chathead b{color:#fff;font-weight:600;font-size:17px;overflow-wrap:anywhere}
-  .chathead .hint{font-size:14px}
+  .chathead b{color:#fff;font-weight:600;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
+  .chathead .hint{font-size:14px;white-space:nowrap}
   .chatlog{flex:1;min-height:0;overflow-y:auto;border:1px solid #262b36;border-radius:10px;padding:16px 18px;background:#0b0e13;display:flex;flex-direction:column;gap:10px}
   .msg{max-width:92%;padding:12px 16px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px;line-height:1.55}
   .msg.user{align-self:flex-end;background:#1d3a63;border:1px solid #2d6cdf}
@@ -202,7 +202,7 @@ _TEMPLATE = """<!doctype html>
   .msg small{display:block;color:#8b93a7;font-size:13px;margin-top:5px}
   .chatrow{display:flex;gap:10px}
   .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px}
-  .chatrow button{font-size:16px;min-height:48px;padding:8px 22px}
+  .chatrow button{font-size:16px;min-height:48px;padding:8px 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #chatMsg{font-size:14px}
 .jobrun{display:inline-flex;align-items:center;gap:10px;background:#141a26;border:1px solid #2d6cdf;border-radius:10px;padding:8px 14px;font-size:15px;color:#cfd8e8;margin:6px 0}
 .jobrun .spinner{width:14px;height:14px;border:2px solid #2d6cdf;border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;flex:none}
@@ -1375,7 +1375,9 @@ def _handler_class():
                 return self._send({"jobs": [_jobs().summary(j) for j in _jobs().list()]})
             if path == "/api/jobs/get":
                 job = _jobs().get(query.get("id", [""])[0])
-                return self._send(job or {"error": "not found"}, status=200 if job else 404)
+                if job is None:
+                    return self._send({"error": "not found"}, status=404)
+                return self._send(_jobs().summary(job))
             if path == "/api/sessions":
                 return self._send({"sessions": SessionStore(root).list()})
             if path == "/api/sessions/get":

@@ -233,6 +233,22 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("up.disabled=chatOffset<=0", text)
         self.assertIn("down.disabled=chatOffset>=Math.max(0,total-CHAT_PAGE)", text)
 
+    def test_labels_do_not_wrap(self) -> None:
+        """Надписи не переносятся и не выходят за границы кнопок/объектов:
+        кнопки, заголовки и навигация — одна строка, длинное обрезается
+        многоточием."""
+        text = page()
+        # правила CSS: white-space:nowrap + ellipsis у всех кнопок и заголовка
+        self.assertIn(".vtab{", text)
+        for rule in (
+            ".chatnew{width:100%;font-size:15px;padding:12px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".chatbtn{flex:1;min-width:0;text-align:left;background:#0f1115;border:1px solid #262b36;color:#e6e6e6;padding:12px 14px;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+            ".chatpager button{min-width:56px;font-size:14px;min-height:44px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+            ".chathead b{color:#fff;font-weight:600;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}",
+            ".chatrow button{font-size:16px;min-height:48px;padding:8px 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ):
+            self.assertIn(rule, text)
+
     def test_new_and_delete_buttons(self) -> None:
         text = page()
         self.assertIn("function chatNew(", text)

@@ -164,9 +164,44 @@ _TEMPLATE = """<!doctype html>
  .fsrow{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}
  .fsrow input[type=range]{width:240px;min-height:auto;padding:0}
  .fsval{color:#9ad1ff;min-width:70px}
- .kvs{display:grid;grid-template-columns:minmax(130px,auto) 1fr;gap:6px 16px;font-size:14px}
- .kvs b{color:#9ad1ff;font-weight:500}
- @media (max-width:900px){
+  .kvs{display:grid;grid-template-columns:minmax(130px,auto) 1fr;gap:6px 16px;font-size:14px}
+  .kvs b{color:#9ad1ff;font-weight:500}
+  /* вкладки верхнего уровня: чат / пульт */
+  .vtabs{display:flex;gap:6px;margin-top:10px}
+  .vtab{background:#0f1115;color:#9ad1ff;border:1px solid #262b36;border-radius:8px;padding:7px 16px;font-size:13px;min-height:32px;cursor:pointer;font-family:inherit}
+  .vtab:hover{border-color:#2d6cdf}
+  .vtab.on{background:#2d6cdf;color:#fff;border-color:#2d6cdf}
+  main > section[data-view=chat]{display:none}
+  body.view-chat main > section[data-view=chat]{display:block}
+  body.view-chat main > section:not([data-view=chat]){display:none}
+  body.view-chat #nav{display:none}
+  /* чат: слева столбик чатов, справа лента ответов и строка запроса */
+  .chatwrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:14px;min-width:0}
+  .chatlist{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .chatnew{width:100%}
+  .chatitems{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .chatitem{display:flex;gap:4px;align-items:stretch;min-width:0}
+  .chatbtn{flex:1;min-width:0;text-align:left;background:#0f1115;border:1px solid #262b36;color:#e6e6e6;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chatbtn.on{border-color:#2d6cdf;background:#1b2130;color:#fff}
+  .chatdel{background:#3a2027;color:#e06c75;border:1px solid #6b2f34;min-width:34px;padding:2px 6px}
+  .chatpager{display:flex;gap:6px;align-items:center;justify-content:space-between;margin-top:2px}
+  .chatpager button{min-width:42px}
+  .chatmain{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .chathead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;min-width:0}
+  .chathead b{color:#fff;font-weight:600;overflow-wrap:anywhere}
+  .chatlog{height:min(54vh,540px);overflow-y:auto;border:1px solid #262b36;border-radius:8px;padding:10px 12px;background:#0b0e13;display:flex;flex-direction:column;gap:8px}
+  .msg{max-width:88%;padding:8px 11px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+  .msg.user{align-self:flex-end;background:#1d3a63;border:1px solid #2d6cdf}
+  .msg.assistant{align-self:flex-start;background:#171c26;border:1px solid #262b36}
+  .msg.system{align-self:center;background:#12161e;border:1px solid #262b36;color:#8b93a7;font-size:13px}
+  .msg small{display:block;color:#8b93a7;font-size:11px;margin-top:4px}
+  .chatrow{display:flex;gap:8px}
+  .chatrow input{flex:1}
+  @media (max-width:900px){
+   .chatwrap{grid-template-columns:1fr}
+   .chatlog{height:min(46vh,420px)}
+  }
+  @media (max-width:900px){
   header{padding:12px 14px 10px}
   main{padding:14px}
   section{padding:14px}
@@ -175,8 +210,35 @@ _TEMPLATE = """<!doctype html>
   .fsrow input[type=range]{width:100%}
  }
 </style></head><body>
-<header><h1>{{t_title}} <span class="ver">v{{version}}</span></h1><nav id="nav"></nav></header>
+<header><h1>{{t_title}} <span class="ver">v{{version}}</span></h1>
+<div class="vtabs" id="vtabs">
+ <button class="vtab" data-view="chat" onclick="chatTab('chat')">{{t_chat}}</button>
+ <button class="vtab" data-view="board" onclick="chatTab('board')">{{t_board}}</button>
+</div>
+<nav id="nav"></nav></header>
 <main>
+ <section id="chatSec" data-view="chat"><h2>{{t_chat}}</h2>
+  <div class="chatwrap">
+   <aside class="chatlist">
+    <button class="chatnew" onclick="chatNew()">{{t_chat_new}}</button>
+    <div class="chatitems" id="chatList"></div>
+    <div class="chatpager">
+     <button onclick="chatShift(-1)" title="{{t_chat_up}}" aria-label="{{t_chat_up}}">↑</button>
+     <span class="hint" id="chatPageInfo">0 / 0</span>
+     <button onclick="chatShift(1)" title="{{t_chat_down}}" aria-label="{{t_chat_down}}">↓</button>
+    </div>
+   </aside>
+   <div class="chatmain">
+    <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span></div>
+    <div class="chatlog" id="chatLog"></div>
+    <div class="chatrow">
+     <input id="chatInput" placeholder="{{t_chat_ph}}" autocomplete="off">
+     <button onclick="chatSend()">{{t_chat_send}}</button>
+    </div>
+    <div class="hint" id="chatMsg"></div>
+   </div>
+  </div>
+ </section>
  <section><h2>{{t_new_task}}</h2>
   <textarea id="goal" rows="3" placeholder="{{t_goal_ph}}"></textarea>
   <label>{{t_domain}} <input id="domain" placeholder="auto"></label>
@@ -243,6 +305,8 @@ const T={
  infraNodes:'{{t_infra_nodes}}',infraEvents:'{{t_infra_events}}',infraCand:'{{t_infra_candidates}}',
  infraNoCand:'{{t_infra_no_candidates}}',logsFiltered:'{{t_logs_filtered}}',ledgerEmpty:'{{t_ledger_empty}}',
  roleUser:'{{t_role_user}}',roleAssistant:'{{t_role_assistant}}',roleSystem:'{{t_role_system}}',
+ chatDel:'{{t_chat_del}}',chatEmpty:'{{t_chat_empty}}',chatPick:'{{t_chat_pick}}',chatNone:'{{t_chat_none}}',
+ chatWait:'{{t_chat_wait}}',chatSent:'{{t_chat_sent}}',
  lang:'{{t_lang}}',tabUi:'{{t_tab_ui}}',tabAuto:'{{t_tab_auto}}',tabNet:'{{t_tab_net}}',tabService:'{{t_tab_service}}',fontSize:'{{t_font_size}}',save:'{{t_save}}',
  tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}'
 };
@@ -517,6 +581,112 @@ async function delSession(id){
  if(currentSession===id){currentSession='';document.getElementById('sessionView').innerHTML=''}
  loadSessions();
 }
+/* --- чат: вкладка, столбик чатов по 5, строка запроса и лента ответов --- */
+const CHAT_PAGE=5;
+let chatItems=[],chatOffset=0,chatCurrent='';
+function chatTab(view){
+ view=view==='board'?'board':'chat';
+ document.body.classList.toggle('view-chat',view==='chat');
+ document.querySelectorAll('#vtabs .vtab').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
+ try{localStorage.setItem('factory.view',view)}catch(e){}
+ if(view==='chat'){loadChats().then(()=>{if(chatCurrent)openChat(chatCurrent)})}
+}
+function chatShift(dir){
+ const max=Math.max(0,chatItems.length-CHAT_PAGE);
+ chatOffset=Math.max(0,Math.min(chatOffset+dir,max));
+ renderChats();
+}
+function renderChats(){
+ const box=document.getElementById('chatList');
+ if(!box) return;
+ const total=chatItems.length;
+ const part=chatItems.slice(chatOffset,chatOffset+CHAT_PAGE);
+ box.innerHTML=part.length?part.map(s=>
+  '<div class="chatitem"><button class="chatbtn'+(s.id===chatCurrent?' on':'')+
+  '" onclick="openChat(&#39;'+esc(s.id)+'&#39;)" title="'+esc(s.title||s.id)+'">'+esc(s.title||s.id)+'</button>'+
+  '<button class="chatdel" onclick="delChat(&#39;'+esc(s.id)+'&#39;)" title="'+esc(T.chatDel)+'" aria-label="'+esc(T.chatDel)+'">✕</button></div>'
+ ).join(''):'<p class="hint">'+esc(T.chatEmpty)+'</p>';
+ const info=document.getElementById('chatPageInfo');
+ if(info) info.textContent=total?(chatOffset+1)+'–'+Math.min(chatOffset+CHAT_PAGE,total)+' / '+total:'0 / 0';
+}
+async function loadChats(){
+ const r=await j('/api/sessions');
+ chatItems=r.sessions||[];
+ const max=Math.max(0,chatItems.length-CHAT_PAGE);
+ if(chatOffset>max) chatOffset=max;
+ renderChats();
+}
+async function openChat(id){
+ chatCurrent=id;
+ renderChats();
+ const s=await j('/api/sessions/get?id='+encodeURIComponent(id));
+ const log=document.getElementById('chatLog');
+ if(!log) return;
+ if(s.error){
+  chatCurrent='';renderChats();
+  log.innerHTML='<p class="hint">'+esc(T.chatPick)+'</p>';log._html=null;
+  return;
+ }
+ const msgs=s.messages||[];
+ const near=log.scrollHeight-log.scrollTop-log.clientHeight<60;
+ const html=msgs.length?msgs.map(m=>'<div class="msg '+esc(m.role||'system')+'">'+esc(m.text)+
+  (m.at?'<small>'+esc(String(m.at).replace('T',' ').slice(0,19))+'</small>':'')+'</div>').join('')
+  :'<p class="hint">'+esc(T.chatNone)+'</p>';
+ if(log._html!==html){
+  log._html=html;log.innerHTML=html;
+  log.scrollTop=log.scrollHeight;
+ }else if(near) log.scrollTop=log.scrollHeight;
+ const title=document.getElementById('chatTitle');
+ if(title) title.textContent=s.title||s.id;
+ const info=document.getElementById('chatInfo');
+ if(info) info.textContent=msgs.length+' · '+String(s.updated||'').replace('T',' ').slice(0,19);
+}
+async function chatNew(){
+ const r=await fetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:''})});
+ const d=await r.json();
+ if(!d.ok||!d.session) return;
+ chatCurrent=d.session.id;
+ chatOffset=0;
+ await loadChats();
+ await openChat(chatCurrent);
+ const inp=document.getElementById('chatInput');
+ if(inp) inp.focus();
+}
+async function delChat(id){
+ await fetch('/api/sessions/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+ if(chatCurrent===id){
+  chatCurrent='';
+  const log=document.getElementById('chatLog');
+  if(log){log.innerHTML='<p class="hint">'+esc(T.chatPick)+'</p>';log._html=null}
+  const title=document.getElementById('chatTitle');
+  if(title) title.textContent=T.chatPick;
+  const info=document.getElementById('chatInfo');
+  if(info) info.textContent='';
+ }
+ await loadChats();
+}
+async function chatSend(){
+ const inp=document.getElementById('chatInput');
+ const msg=document.getElementById('chatMsg');
+ const text=inp?inp.value.trim():'';
+ if(!text) return;
+ if(!chatCurrent) await chatNew();
+ if(!chatCurrent) return;
+ if(inp) inp.value='';
+ if(msg) msg.textContent=T.chatWait;
+ const body={schema:'invr.task/1',goal:text,session:chatCurrent};
+ const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const d=await r.json();
+ if(msg) msg.textContent=d.ok?T.chatSent+String((d.job&&d.job.id)||''):T.err+(d.error||'');
+ await openChat(chatCurrent);
+}
+(function bindChatInput(){
+ const inp=document.getElementById('chatInput');
+ if(!inp) return;
+ inp.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();chatSend()}
+ });
+})();
 async function approveJob(id,ok){
  await fetch('/api/jobs/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,ok})});
  loadJobs();
@@ -567,7 +737,7 @@ function toggleDump(row){
 function buildNav(){
  const nav=document.getElementById('nav');
  if(!nav) return;
- const secs=[...document.querySelectorAll('main > section')];
+ const secs=[...document.querySelectorAll('main > section')].filter(s=>!s.dataset.view);
  secs.forEach((s,i)=>{ if(!s.id) s.id='sec-'+i; });
  nav.innerHTML='<span class="hint" style="margin:2px 6px 0 0">'+esc(T.nav)+':</span>'+
   secs.map(s=>'<a href="#'+s.id+'">'+esc((s.querySelector('h2')||{}).textContent? s.querySelector('h2').textContent.replace('▾','').replace('▸','').trim():'')+'</a>').join('');
@@ -823,10 +993,16 @@ async function shotGraph(){
  }catch(e){ if(msg) msg.textContent=T.infraShotFail+e; }
 }
 load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+chatTab(localStorage.getItem('factory.view')||'chat');
 setInterval(loadJobs,2000);
 setInterval(function(){loadArsenal();loadInfra();loadMonitoring();},5000);
 setInterval(function(){loadDoctor();loadQuotas();loadProviders();loadLedger();},15000);
 setInterval(function(){loadSessions();loadCatalog();},30000);
+setInterval(function(){
+ if(!document.body.classList.contains('view-chat')) return;
+ loadChats();
+ if(chatCurrent) openChat(chatCurrent);
+},3000);
 </script></body></html>"""
 
 
@@ -913,6 +1089,19 @@ def _page(lang: str) -> str:
         "t_role_user": tr("web.role_user"),
         "t_role_assistant": tr("web.role_assistant"),
         "t_role_system": tr("web.role_system"),
+        "t_chat": tr("web.chat"),
+        "t_board": tr("web.board"),
+        "t_chat_new": tr("web.chat_new"),
+        "t_chat_ph": tr("web.chat_ph"),
+        "t_chat_send": tr("web.chat_send"),
+        "t_chat_del": tr("web.chat_del"),
+        "t_chat_up": tr("web.chat_up"),
+        "t_chat_down": tr("web.chat_down"),
+        "t_chat_empty": tr("web.chat_empty"),
+        "t_chat_pick": tr("web.chat_pick"),
+        "t_chat_none": tr("web.chat_none"),
+        "t_chat_wait": tr("web.chat_wait"),
+        "t_chat_sent": tr("web.chat_sent"),
         "t_providers": tr("web.providers"),
         "t_th_enabled": tr("web.th_enabled"),
         "t_avail": tr("web.avail"),

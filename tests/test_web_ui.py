@@ -183,5 +183,69 @@ class TranslationTest(unittest.TestCase):
         self.assertEqual(label(page("zh"), "tabUi"), "界面")
 
 
+class ChatTabTest(unittest.TestCase):
+    """Вкладка «Чат»: строка запроса, лента ответов с прокруткой, столбик
+    чатов по 5 штук с навигацией ↑/↓, создание и удаление чатов."""
+
+    def test_chat_and_board_tabs(self) -> None:
+        text = page()
+        self.assertIn('id="vtabs"', text)
+        self.assertIn('data-view="chat"', text)
+        self.assertIn('data-view="board"', text)
+
+    def test_tab_labels_localized(self) -> None:
+        self.assertIn(">Чат<", page("ru"))
+        self.assertIn(">Chat<", page("en"))
+        self.assertIn(">聊天<", page("zh"))
+
+    def test_request_line_and_send(self) -> None:
+        text = page()
+        self.assertIn('id="chatInput"', text)
+        self.assertIn("function chatSend(", text)
+        self.assertIn("chatSend()", text)
+
+    def test_answer_field_scrolls(self) -> None:
+        text = page()
+        self.assertIn('id="chatLog"', text)
+        start = text.index(".chatlog{")
+        chunk = text[start:text.index("}", start)]
+        self.assertIn("overflow-y:auto", chunk)
+        self.assertIn("max-height" if "max-height" in chunk else "height:", chunk)
+
+    def test_five_chats_per_window(self) -> None:
+        text = page()
+        self.assertIn("const CHAT_PAGE=5;", text)
+        self.assertIn("chatItems.slice(chatOffset,chatOffset+CHAT_PAGE)", text)
+
+    def test_list_navigation_up_down(self) -> None:
+        text = page()
+        self.assertIn("function chatShift(", text)
+        self.assertIn("chatShift(-1)", text)
+        self.assertIn("chatShift(1)", text)
+        # навигация сдвигает окно по списку, а не перерисовывает разметку
+        self.assertIn("Math.max(0,Math.min(chatOffset+dir,max))", text)
+
+    def test_new_and_delete_buttons(self) -> None:
+        text = page()
+        self.assertIn("function chatNew(", text)
+        self.assertIn("function delChat(", text)
+        self.assertIn('class="chatnew"', text)
+        self.assertIn('class="chatdel"', text)
+
+    def test_chat_uses_sessions_api(self) -> None:
+        text = page()
+        self.assertIn("/api/sessions/delete", text)
+        self.assertIn("'Content-Type':'application/json'},body:JSON.stringify({title:''})", text)
+        self.assertIn("goal:text,session:chatCurrent", text)
+
+    def test_board_view_hides_chat(self) -> None:
+        text = page()
+        self.assertIn("body.view-chat main > section:not([data-view=chat]){display:none}", text)
+        self.assertIn("main > section[data-view=chat]{display:none}", text)
+
+    def test_chat_section_excluded_from_section_nav(self) -> None:
+        self.assertIn("filter(s=>!s.dataset.view)", page())
+
+
 if __name__ == "__main__":
     unittest.main()

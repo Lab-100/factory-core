@@ -195,6 +195,7 @@ enabled = false
 [providers.workai]
 enabled = true
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
+bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge.py"
 
 [routing]
 # Направление компетенций на адаптер (перекрывает встроенную маршрутизацию).

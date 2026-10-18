@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 # Каталог известных сред. Для каждой — вероятные имена CLI и каталоги конфигов.
@@ -61,7 +62,10 @@ PROVIDERS: dict[str, dict] = {
         "title": "workAI",
         "commands": ["workai"],
         "paths": ["~/.workai"],
-        "run": ["workai", "chat", "-m", "ask", "-"],
+        # spec-маркер: запуск через мост, который читает промпт из stdin и
+        # возвращает ответ WorkAI в stdout (графический `workai chat` сам по
+        # себе ответ в stdout не печатает).
+        "run": ["bridge"],
     },
     "multitool": {
         "title": "MultiTool",
@@ -70,6 +74,12 @@ PROVIDERS: dict[str, dict] = {
         "run": ["multitool", "run"],
     },
 }
+
+# Путь по умолчанию к мосту external_agent -> WorkAI (reads stdin -> prints answer).
+# Переопределяется настройкой providers.workai.bridge.
+WORKAI_BRIDGE_DEFAULT = (
+    r"C:\Users\TEKK\Documents\Codex\2026-09-01\new-chat\workai_bridge.py"
+)
 
 
 def names() -> list[str]:
@@ -138,7 +148,25 @@ def enabled(settings) -> list[dict]:
 
 
 def run_command(settings, name: str) -> list[str]:
-    """Команда запуска провайдера: настроенная или из каталога; иначе пустой список."""
+    """Команда запуска провайдера: настроенная или из каталога; иначе пустой список.
+
+    Для workai возвращается мост `external_agent -> WorkAI`: он читает промпт
+    из stdin, запускает `workai chat`, опрашивает сессию чата и печатает ответ
+    в stdout. Это нужно, т.к. графический `workai chat` ответ в stdout не отдаёт.
+    """
+    if str(name) == "workai":
+        bridge = WORKAI_BRIDGE_DEFAULT
+        if settings is not None:
+            configured = str(settings.get("providers.workai.bridge", "") or "").strip()
+            if configured:
+                bridge = configured
+        python = sys.executable
+        if settings is not None:
+            configured_python = settings.get("adapters.workai_python")
+            if configured_python:
+                python = str(configured_python)
+        return [python, bridge]
+
     configured = _configured_command(settings, name)
     if configured:
         found = _which(configured) or configured

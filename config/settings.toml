@@ -201,8 +201,22 @@ bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge
 # РџСЂРѕРІР°Р№РґРµСЂ Cline (CLI). РџСЂРѕРјРїС‚ РїРѕРґР°С‘С‚СЃСЏ С‡РµСЂРµР· РјРѕСЃС‚ cline_bridge.py
 # (СЃРј. factory/adapters/cline_bridge.py): РѕРЅ С‡РёС‚Р°РµС‚ stdin Рё РІС‹Р·С‹РІР°РµС‚ Cline,
 # РІРѕР·РІСЂР°С‰Р°СЏ РѕС‚РІРµС‚ РІ stdout. РњРѕСЃС‚ РјРѕР¶РЅРѕ РїРµСЂРµРѕРїСЂРµРґРµР»РёС‚СЊ С‡РµСЂРµР· providers.cline.bridge.
-enabled = false
+enabled = true
 command = "C:\\Users\\TEKK\\AppData\\Local\\Cline\\cline-cli.exe"
+model = "cline-free/mimo-v2.6-flash"
+models = [
+  "cline|cline-free/mimo-v2.6-flash",
+  "cline|cline-free/solar-mini4",
+  "cline|nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "cline|nvidia/nemotron-3-super-120b-a12b:free",
+  "cline|nvidia/nemotron-3-ultra-550b-a55b:free",
+  "cline|nvidia/nemotron-3.5-super-vl:free",
+  "cline|cohere/north-mini-code:free",
+  "cline|dots-studio/dots-3-note-preview:free",
+  "cline|liquid/lfm-2.5-2.6b:free",
+  "cline|poolside/laguna-s-2.1:free",
+  "cline|xingchen-agi/xing4.0-29b-a4b:free",
+]
 
 [routing]
 # РќР°РїСЂР°РІР»РµРЅРёРµ РєРѕРјРїРµС‚РµРЅС†РёР№ РЅР° Р°РґР°РїС‚РµСЂ (РїРµСЂРµРєСЂС‹РІР°РµС‚ РІСЃС‚СЂРѕРµРЅРЅСѓСЋ РјР°СЂС€СЂСѓС‚РёР·Р°С†РёСЋ).

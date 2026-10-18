@@ -42,27 +42,54 @@ class ExternalAgentAdapter(Adapter):
         if provider is None:
             return StepResult(False, "unavailable", self.name, action,
                               error="нет включённых внешних провайдеров")
-        command = providers.run_command(self.settings, provider["name"])
+        variants = providers.run_commands(self.settings, provider["name"])
         if dry_run:
             return StepResult(True, "simulated", self.name, action,
-                              {"provider": provider["name"], "command": command,
+                              {"provider": provider["name"],
+                               "command": variants[0] if variants else [],
+                               "commands": variants,
                                "prompt": prompt[:200]})
-        if not command:
+        if not variants:
             return StepResult(False, "unavailable", self.name, action,
                               {"provider": provider["name"]},
                               error="команда провайдера не найдена")
-        try:
-            proc = subprocess.run(command, input=prompt, capture_output=True,
-                                  text=True, timeout=int(params.get("timeout_s", 180)),
-                                  encoding="utf-8", errors="replace")
-        except Exception as exc:  # noqa: BLE001
-            return StepResult(False, "error", self.name, action,
-                              {"provider": provider["name"]}, error=str(exc))
-        if proc.returncode != 0:
-            detail = (proc.stderr or "").strip()[:500]
-            return StepResult(False, "error", self.name, action,
-                              {"provider": provider["name"], "returncode": proc.returncode},
-                              error=detail or f"код возврата {proc.returncode}")
-        return StepResult(True, "ok", self.name, action,
-                          {"provider": provider["name"],
-                           "content": (proc.stdout or "").strip()[:4000]})
+        prompt_arg = bool(provider.get("prompt_arg"))
+        timeout = int(params.get("timeout_s", 180))
+        last_error = ""
+        last_code = None
+        tried = 0
+        for command in variants:
+            tried += 1
+            cmd = [*command, prompt] if prompt_arg else command
+            try:
+                if prompt_arg:
+                    proc = subprocess.run(cmd, capture_output=True, text=True,
+                                          timeout=timeout, encoding="utf-8",
+                                          errors="replace")
+                else:
+                    proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
+                                          timeout=timeout, encoding="utf-8",
+                                          errors="replace")
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+                continue
+            if proc.returncode == 0:
+                raw = proc.stdout or ""
+                if provider["name"] == "cline":
+                    content = providers.extract_cline_text(raw)
+                else:
+                    content = raw.strip()
+                if content:
+                    return StepResult(True, "ok", self.name, action,
+                                      {"provider": provider["name"],
+                                       "content": content[:4000],
+                                       "tried": tried})
+                last_error = "пустой ответ"
+                last_code = proc.returncode
+                continue
+            last_error = (proc.stderr or "").strip()[:500] or f"код возврата {proc.returncode}"
+            last_code = proc.returncode
+        return StepResult(False, "error", self.name, action,
+                          {"provider": provider["name"], "returncode": last_code,
+                           "tried": tried},
+                          error=last_error or "все модели не сработали")

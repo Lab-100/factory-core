@@ -169,11 +169,31 @@ python -m factory run examples/task.tools.json --dry-run
   `python -m factory`; `factory.ps1 run <task.json>`, `factory.ps1 catalog`,
   `factory.ps1 doctor`.
 - Внешние ИИ-провайдеры: `factory providers list` показывает установленные среды
-  (opencode, claude-code, cursor, windsurf, void, zen, workai, multitool) и их
-  переключатель. `factory providers enable <имя>` включает провайдера; направить
-  на него компетенции можно через `routing.<компетенция> = "external_agent"`
-  в `config/settings.toml` или включить `providers.auto_route = true`. В дашборде
-  есть раздел «Провайдеры».
+  (opencode, claude-code, cursor, windsurf, void, zen, workai, multitool, cline)
+  и их переключатель. `factory providers enable <имя>` включает провайдера;
+  направить на него компетенции можно через
+  `routing.<компетенция> = "external_agent"` в `config/settings.toml` или
+  включить `providers.auto_route = true`. В дашборде есть раздел «Провайдеры».
+
+### Провайдер Cline (внешние модели и перебор)
+
+Cline подключается как внешний ИИ-провайдер через адаптер `external_agent`:
+
+- **Запуск**: секция `[providers.cline]` в `config/settings.toml` —
+  `enabled`, `command` (путь к `cline-cli.exe`), `model` (модель по умолчанию),
+  `models` (упорядоченный список для перебора).
+- **Перебор моделей**: если модель не сработала (ошибка провайдера, лимит,
+  таймаут), фабрика пробует следующую из `providers.cline.models` — формат
+  элементов `провайдер|модель` (например `cline|nvidia/nemotron-3.5-super-vl:free`).
+  Сначала проверяются рабочие модели, сбойные пропускаются.
+- **Format ответа**: CLI Cline возвращает JSON-строки; `external_agent`
+  извлекает финальный текст из `run_result.text`, поэтому в результате шага
+  нет служебного JSON.
+- **Бесплатные модели**: проверка эмпирическая; карта рабочих моделей
+  сохраняется в `%LOCALAPPDATA%\FactoryLab100\config\cline_working_models.json`.
+  Из 7 провайдеров с free-моделями («(free)» в названии) реально работает
+  провайдер `cline`; остальные (`aihubmix`, `bothub`, `kilo`, `openrouter`,
+  `orcarouter`, `tokenrouter`) требуют API-ключей или недоступны.
 
 ## Инвентаризация, квоты, супервизия и единый журнал
 

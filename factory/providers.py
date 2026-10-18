@@ -78,7 +78,10 @@ PROVIDERS: dict[str, dict] = {
         "title": "Cline",
         "commands": ["cline", "cline-cli"],
         "paths": ["~/AppData/Local/Cline", "~/.cline"],
-        "run": ["cline", "run"],
+        "run": ["cline"],
+        # CLI Cline принимает промпт аргументом, а не через stdin:
+        # адаптер external_agent дописывает промпт последним аргументом.
+        "prompt_arg": True,
     },
 }
 
@@ -94,6 +97,10 @@ WORKAI_BRIDGE_DEFAULT = (
 CLINE_BRIDGE_DEFAULT = str(
     Path(__file__).resolve().parent / "adapters" / "cline_bridge.py"
 )
+
+# Бесплатная модель Cline по умолчанию (цена 0, баланс не требуется).
+# Переопределяется настройкой providers.cline.model.
+CLINE_MODEL_DEFAULT = "cline-free/mimo-v2.6-flash"
 
 
 def names() -> list[str]:
@@ -148,6 +155,7 @@ def provider_info(settings, name: str) -> dict:
         "available": bool(command or paths),
         "enabled": enabled,
         "run": list(spec.get("run") or []),
+        "prompt_arg": bool(spec.get("prompt_arg")),
     }
 
 
@@ -182,24 +190,26 @@ def run_command(settings, name: str) -> list[str]:
         return [python, bridge]
 
     if str(name) == "cline":
-        # Спец-маркер: запуск через мост, который читает промпт из stdin и
-        # возвращает ответ Cline в stdout (CLI Cline принимает промпт
-        # аргументом, а не из stdin, поэтому нужен посредник).
-        bridge = CLINE_BRIDGE_DEFAULT
-        if settings is not None:
-            configured = str(settings.get("providers.cline.bridge", "") or "").strip()
-            if configured:
-                bridge = configured
-        command = None
+        # CLI Cline принимает промпт аргументом (не через stdin), поэтому
+        # адаптер external_agent допишет промпт последним аргументом
+        # (spec["prompt_arg"]). Мост не нужен, и это работает в frozen-сборке.
         configured = _configured_command(settings, name)
         if configured:
             command = _which(configured) or configured
         else:
             info = provider_info(settings, name)
-            command = info.get("command")
+            command = info.get("command") or ""
         if not command:
             return []
-        return [sys.executable, bridge, command]
+        model = ""
+        if settings is not None:
+            model = str(settings.get("providers.cline.model", "") or "").strip()
+        if not model:
+            model = CLINE_MODEL_DEFAULT
+        args = [command, "--json", "--auto-approve", "true"]
+        if model:
+            args.extend(["-m", model])
+        return args
 
     configured = _configured_command(settings, name)
     if configured:
@@ -215,6 +225,88 @@ def run_command(settings, name: str) -> list[str]:
         rest = list(spec.get("run") or [])[1:]
         return [info["command"], *rest]
     return []
+
+
+def _cline_models(settings) -> list[str]:
+    """Упорядоченный список моделей Cline для перебора (providers.cline.models)."""
+    models: list[str] = []
+    if settings is not None:
+        raw = settings.get("providers.cline.models")
+        if isinstance(raw, (list, tuple)):
+            models = [str(item).strip() for item in raw if str(item).strip()]
+        if not models:
+            single = str(settings.get("providers.cline.model", "") or "").strip()
+            if single:
+                models = [single]
+    if not models:
+        models = [CLINE_MODEL_DEFAULT]
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in models:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
+def run_commands(settings, name: str) -> list[list[str]]:
+    """Все варианты запуска провайдера (для cline — перебор моделей)."""
+    if str(name) == "cline":
+        configured = _configured_command(settings, name)
+        if configured:
+            command = _which(configured) or configured
+        else:
+            info = provider_info(settings, name)
+            command = info.get("command") or ""
+        if not command:
+            return []
+        base = [command, "--json", "--auto-approve", "true"]
+        variants: list[list[str]] = []
+        for entry in _cline_models(settings):
+            provider_id = ""
+            model = entry
+            if "|" in entry:
+                provider_id, model = entry.split("|", 1)
+                provider_id = provider_id.strip()
+                model = model.strip()
+            if not model:
+                continue
+            args = list(base)
+            if provider_id:
+                args.extend(["-P", provider_id])
+            args.extend(["-m", model])
+            variants.append(args)
+        return variants
+    single = run_command(settings, name)
+    return [single] if single else []
+
+
+def extract_cline_text(raw: str) -> str:
+    """Финальный текст ответа Cline из JSON-строк вывода (run_result.text)."""
+    import json
+
+    result_text = ""
+    done_text = ""
+    for line in str(raw or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            item = json.loads(line)
+        except Exception:  # noqa: BLE001
+            continue
+        kind = str(item.get("type") or "")
+        if kind == "run_result":
+            text = item.get("text")
+            if text:
+                result_text = str(text)
+        elif kind == "agent_event":
+            event = item.get("event") or {}
+            if event.get("type") == "done":
+                text = event.get("text")
+                if text:
+                    done_text = str(text)
+    return (result_text or done_text).strip()
 
 
 def set_enabled(settings, name: str, value: bool) -> bool:

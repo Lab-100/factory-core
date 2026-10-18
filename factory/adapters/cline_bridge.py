@@ -20,7 +20,9 @@ import sys
 
 def extract_text(lines) -> str:
     """Собирает итоговый текстовый ответ из JSON-строк вывода Cline."""
-    parts = []
+    result_text = ""
+    done_text = ""
+    fail_reason = ""
     for raw in lines:
         line = raw.strip()
         if not line.startswith("{"):
@@ -30,36 +32,45 @@ def extract_text(lines) -> str:
         except json.JSONDecodeError:
             continue
         t = str(item.get("type") or "")
-        # Итоговый текст бывает в run_result.text и в agent_event.event.text
         if t == "run_result":
             text = item.get("text")
             if text:
-                parts.append(str(text))
+                result_text = str(text)
             continue
         if t == "agent_event":
             ev = item.get("event") or {}
             if ev.get("type") == "done":
                 text = ev.get("text")
                 if text:
-                    parts.append(str(text))
-                reason = ev.get("reason")
-                if reason and str(reason) != "done":
-                    parts.append("[Cline: %s]" % reason)
-    return "\n".join(p for p in parts if p).strip()
+                    done_text = str(text)
+                reason = str(ev.get("reason") or "")
+                if reason and reason not in ("done", "completed", "success", "stop"):
+                    fail_reason = reason
+    text = result_text or done_text
+    if text:
+        return text.strip()
+    if fail_reason:
+        return "[Cline: %s]" % fail_reason
+    return ""
 
 
 def main(argv) -> int:
     if len(argv) < 1:
-        sys.stderr.write("usage: cline_bridge.py <cline-cli> [args...]\n")
+        sys.stderr.write("usage: cline_bridge.py <cline-cli> [model] [args...]\n")
         return 2
     cmd = argv[0]
+    model = str(argv[1]).strip() if len(argv) > 1 else ""
     try:
         prompt = sys.stdin.read()
     except Exception:  # noqa: BLE001
         prompt = ""
 
+    args = [cmd, "--json", "--auto-approve", "true"]
+    if model:
+        args.extend(["-m", model])
+    args.append(prompt)
     proc = subprocess.run(
-        [cmd, "--json", "--auto-approve", "true", prompt],
+        args,
         capture_output=True,
         text=True,
         encoding="utf-8",

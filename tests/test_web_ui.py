@@ -262,10 +262,11 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("body.view-chat main{max-width:none", text)
 
     def test_chat_text_is_large_enough(self) -> None:
-        """Крупный читаемый текст: сообщения и строка запроса не мелкие."""
+        """Крупный читаемый текст: сообщения и строка запроса не мелкие
+        (11–14 кегль — это примерно 15–19px)."""
         text = page()
-        self.assertIn("font-size:16px;line-height:1.55", text)
-        self.assertIn(".chatrow input{flex:1;font-size:16px;min-height:46px", text)
+        self.assertIn("font-size:17px;line-height:1.55", text)
+        self.assertIn(".chatrow input{flex:1;font-size:17px;min-height:48px", text)
 
 
 if __name__ == "__main__":

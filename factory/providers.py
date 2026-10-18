@@ -84,6 +84,16 @@ PROVIDERS: dict[str, dict] = {
         # адаптер external_agent дописывает промпт последним аргументом.
         "prompt_arg": True,
     },
+    "web_chat": {
+        # Браузерные веб-чаты (DeepSeek, GigaChat, Qwen, Яндекс/Алиса) —
+        # доступ через локальный HTTP-демон browser-chats. Адаптер web_chat
+        # опрашивает его по REST; это не CLI, поэтому "pуны"/команды пусты.
+        "title": "Web-чаты (браузер)",
+        "commands": [],
+        "paths": [],
+        # Признак-маркер: демон-сервис, а не CLI-агент (см. web_chat.py).
+        "service": True,
+    },
 }
 
 # Путь по умолчанию к мосту external_agent -> WorkAI (reads stdin -> prints answer).

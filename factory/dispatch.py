@@ -30,6 +30,7 @@ CAPABILITY_ROUTE: dict[str, tuple[str, str]] = {
     "code": ("llm_local", "chat"),
     "answer": ("llm_local", "chat"),
     "vision": ("llm_local", "vision"),
+    "web-chat": ("web_chat", "ask"),
     "region-switch": ("region", "switch"),
 }
 
@@ -127,6 +128,19 @@ class Dispatcher:
                                or task.constraints.get("provider") or "")
                 if provider:
                     params["provider"] = provider
+                if (cap == "answer"
+                        and task.constraints.get("synthesize", True)):
+                    params["synthesize"] = True
+                    params["synthesize_count"] = int(
+                        task.inputs.get("synthesize_count")
+                        or task.constraints.get("synthesize_count") or 3)
+            if adapter == "web_chat":
+                # набор веб-чатов: явный из задачи либо все доступные в демоне
+                chats = task.inputs.get("chats") or task.constraints.get("chats")
+                if chats:
+                    params["chats"] = list(chats) if isinstance(chats, (list, tuple)) else [chats]
+                elif task.inputs.get("provider"):
+                    params["chats"] = [str(task.inputs["provider"])]
             if adapter == "llm_local":
                 # vision (§4.5): пути к изображениям и модель — из входов задачи,
                 # чтобы адаптер отправил их в Ollama как мультимодальное сообщение

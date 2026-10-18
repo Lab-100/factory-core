@@ -530,5 +530,84 @@ class DispatcherTest(unittest.TestCase):
             tmp.cleanup()
 
 
+class FakeWebChat(Adapter):
+    name = "web_chat"
+
+    def run(self, action, params, dry_run=False):  # noqa: ANN001
+        return StepResult(True, "ok", self.name, action,
+                          {"chats": {"qwen": {"answer": "х"}},
+                           "content": "ответ из веб-чата"})
+
+
+class DispatcherWebChatTest(unittest.TestCase):
+    def _dispatcher(self, settings):
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        (root / "config").mkdir()
+        domains_file = root / "config" / "domains.toml"
+        domains_file.write_text(
+            'schema = "invr.factory.domains/1"\nmatch_by = "auto"\n'
+            '[domain.research]\nenabled = true\npriority = 50\n'
+            'capabilities = ["web-chat"]\n',
+            encoding="utf-8",
+        )
+        registry = DomainRegistry(domains_file, [])
+        adapters = {"web_chat": FakeWebChat(settings)}
+        dispatcher = Dispatcher(settings, registry,
+                                Ledger(root / "ledger.jsonl"),
+                                adapters=adapters, integrations={})
+        return tmp, dispatcher
+
+    def test_route_web_chat_capability(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            settings = Settings(Path(tmp.name) / "config" / "settings.toml", {})
+            settings.set("automation.mode", "auto")
+            tmp2, dispatcher = self._dispatcher(settings)
+            try:
+                task = Task(goal="спроси веб-чаты", capabilities=["web-chat"])
+                _, steps = dispatcher.plan(task)
+                self.assertTrue(steps)
+                self.assertEqual(steps[0].adapter, "web_chat")
+                self.assertEqual(steps[0].action, "ask")
+                self.assertEqual(steps[0].capability, "web-chat")
+            finally:
+                tmp2.cleanup()
+        finally:
+            tmp.cleanup()
+
+    def test_chats_param_from_task_inputs(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            settings = Settings(Path(tmp.name) / "config" / "settings.toml", {})
+            settings.set("automation.mode", "auto")
+            tmp2, dispatcher = self._dispatcher(settings)
+            try:
+                task = Task(goal="спроси", capabilities=["web-chat"],
+                            inputs={"chats": ["deepseek", "qwen"]})
+                _, steps = dispatcher.plan(task)
+                self.assertEqual(steps[0].params["chats"], ["deepseek", "qwen"])
+            finally:
+                tmp2.cleanup()
+        finally:
+            tmp.cleanup()
+
+    def test_execute_web_chat_ok(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            settings = Settings(Path(tmp.name) / "config" / "settings.toml", {})
+            settings.set("automation.mode", "auto")
+            tmp2, dispatcher = self._dispatcher(settings)
+            try:
+                task = Task(goal="спроси", capabilities=["web-chat"])
+                result = dispatcher.execute(task)
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["results"][0]["adapter"], "web_chat")
+            finally:
+                tmp2.cleanup()
+        finally:
+            tmp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

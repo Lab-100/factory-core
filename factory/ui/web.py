@@ -204,6 +204,13 @@ _TEMPLATE = """<!doctype html>
   .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px}
   .chatrow button{font-size:16px;min-height:48px;padding:8px 22px}
   #chatMsg{font-size:14px}
+.jobrun{display:inline-flex;align-items:center;gap:10px;background:#141a26;border:1px solid #2d6cdf;border-radius:10px;padding:8px 14px;font-size:15px;color:#cfd8e8;margin:6px 0}
+.jobrun .spinner{width:14px;height:14px;border:2px solid #2d6cdf;border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.jobtimer{font-variant-numeric:tabular-nums;color:#8fb2e8}
+.jobstep{color:#d7e3f5}
+.jobdone{background:#10241a;border:1px solid #2ea15f;color:#c5ecd2;padding:10px 14px;border-radius:10px;margin:6px 0;white-space:pre-wrap;font-size:15px;line-height:1.45}
+.jobfail{background:#2a1418;border:1px solid #d05b5b;color:#f0c9c9;padding:10px 14px;border-radius:10px;margin:6px 0;white-space:pre-wrap}
   @media (max-width:900px){
    .chatwrap{grid-template-columns:1fr;height:auto}
    .chatlog{height:min(52vh,480px)}
@@ -687,8 +694,53 @@ async function chatSend(){
  const body={schema:'invr.task/1',goal:text,session:chatCurrent};
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
- if(msg) msg.textContent=d.ok?T.chatSent+String((d.job&&d.job.id)||''):T.err+(d.error||'');
+ if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }
+ const job=d.job||{};
+ if(msg) msg.textContent='';
+ showJobProgress(job.id, job.goal||text);
  await openChat(chatCurrent);
+}
+let jobTimer=null,jobSeq=0;
+function showJobProgress(id,goal){
+ const box=document.getElementById('chatMsg');
+ if(!box) return;
+ const seq=++jobSeq;
+ if(jobTimer){clearInterval(jobTimer);jobTimer=null}
+ const started=Date.now();
+ const render=async()=>{
+  if(seq!==jobSeq) return;
+  let j=null;
+  try{const rr=await j('/api/jobs/get?id='+encodeURIComponent(id));j=rr;}catch(e){}
+  if(!j||j.error){return}
+  const elapsed=Math.floor((Date.now()-started)/1000);
+  const st=j.status||'running';
+  const step=j.last_step||(st==='running'?'выполняется…':st);
+  if(st==='done'){
+   clearInterval(jobTimer);jobTimer=null;
+   const ans=j.answer||'(без текста ответа)';
+   box.innerHTML='<div class="jobdone">✅ '+esc(ans)+'</div>';
+   await openChat(chatCurrent);
+   return;
+  }
+  if(st==='failed'||st==='error'||st==='stopped'){
+   clearInterval(jobTimer);jobTimer=null;
+   const err=j.error||(st==='stopped'?'остановлена оператором':'задача завершилась с ошибкой');
+   box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (j.answer?'<br><br>'+esc(j.answer):'')+'</div>';
+   await openChat(chatCurrent);
+   return;
+  }
+  if(st==='awaiting-approval'){
+   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">ожидает подтверждения</span><span class="jobtimer">'+elapsed+' с</span></div>';
+   return;
+  }
+  if(st==='queued'){
+   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">в очереди…</span><span class="jobtimer">'+elapsed+' с</span></div>';
+   return;
+  }
+  box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(step)+'</span><span class="jobtimer">'+elapsed+' с</span></div>';
+ };
+ render();
+ jobTimer=setInterval(render,1500);
 }
 (function bindChatInput(){
  const inp=document.getElementById('chatInput');

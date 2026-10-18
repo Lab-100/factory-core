@@ -395,7 +395,7 @@ class Dispatcher:
                 out.append(parsed)
         return out
 
-    def execute(self, task, approve=None, dry_run: bool = False) -> dict:
+    def execute(self, task, approve=None, dry_run: bool = False, on_step=None) -> dict:
         matched, steps = self.plan(task)
         automation = task.automation or self.settings.automation
         checkpoints = list(self.settings.checkpoints)
@@ -418,11 +418,11 @@ class Dispatcher:
         if any(step.depends_on for step in steps):
             results, stopped = self._execute_dag(
                 task_id, steps, approve, automation, checkpoints, dry_run,
-                allow_region_switch, default_region)
+                allow_region_switch, default_region, on_step=on_step)
         else:
             results, stopped = self._execute_linear(
                 task_id, steps, approve, automation, checkpoints, dry_run,
-                allow_region_switch, default_region)
+                allow_region_switch, default_region, on_step=on_step)
 
         success = not stopped and all(r.ok or r.status == "skipped" for r in results)
         checks = self._acceptance_checks(task, steps, results, success)
@@ -507,7 +507,7 @@ class Dispatcher:
 
     def _execute_linear(self, task_id: str, steps, approve, automation: str,
                         checkpoints: list, dry_run: bool, allow_region_switch: bool,
-                        default_region: str) -> tuple[list, bool]:
+                        default_region: str, on_step=None) -> tuple[list, bool]:
         results: list[StepResult] = []
         stopped = False
         for step in steps:
@@ -519,6 +519,8 @@ class Dispatcher:
                     results.append(res)
                     self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
                                         "status": "awaiting-approval"})
+                    if on_step:
+                        on_step(step, res, "awaiting-approval")
                     stopped = True
                     continue
                 if not approve(step):
@@ -527,13 +529,19 @@ class Dispatcher:
                     results.append(res)
                     self.ledger.append({"kind": "step", "task": task_id, "step": step.id,
                                         "status": "skipped"})
+                    if on_step:
+                        on_step(step, res, "skipped")
                     continue
+            if on_step:
+                on_step(step, None, "start")
             res, events = self._run_step(task_id, step, dry_run, allow_region_switch,
                                          default_region)
             for event in events:
                 self.ledger.append(event)
             results.append(res)
             self.ledger.append(self._step_event(task_id, step, res))
+            if on_step:
+                on_step(step, res, res.status)
         return results, stopped
 
     @staticmethod
@@ -551,7 +559,7 @@ class Dispatcher:
 
     def _execute_dag(self, task_id: str, steps, approve, automation: str,
                      checkpoints: list, dry_run: bool, allow_region_switch: bool,
-                     default_region: str) -> tuple[list, bool]:
+                     default_region: str, on_step=None) -> tuple[list, bool]:
         """Исполнить план уровнями: внутри уровня независимые ветви параллельны."""
         levels = self._dag_levels(steps)
         parallel = max(1, int(self.settings.get("dispatch.parallel", 2) or 1))
@@ -602,6 +610,9 @@ class Dispatcher:
 
             if not to_run:
                 continue
+            for item in to_run:
+                if on_step:
+                    on_step(item, None, "start")
             if parallel > 1 and len(to_run) > 1:
                 with ThreadPoolExecutor(max_workers=min(parallel, len(to_run))) as pool:
                     executed = list(pool.map(
@@ -618,6 +629,8 @@ class Dispatcher:
                 results.append(res)
                 self.ledger.append(self._step_event(task_id, step, res))
                 outcomes[key] = _Outcome(res.ok, res.status, res.error or "")
+                if on_step:
+                    on_step(step, res, res.status)
         return results, stopped
 
     # --- реактивная смена региона (§4.5) ---

@@ -22,6 +22,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _answer_text(result: dict) -> str:
+    """Прямой ответ нейросетей из результата задачи (последний успешный шаг)."""
+    if not isinstance(result, dict):
+        return ""
+    results = result.get("results") or []
+    text = ""
+    for r in reversed(results):
+        if not isinstance(r, dict) or not r.get("ok"):
+            continue
+        out = r.get("output") or {}
+        if not isinstance(out, dict):
+            continue
+        cand = (
+            out.get("content") or out.get("response") or out.get("answer")
+            or out.get("text") or out.get("stdout") or out.get("markdown")
+        )
+        if isinstance(cand, str) and cand.strip():
+            text = cand.strip()
+            break
+    return text
+
+
 class JobManager:
     def __init__(self, root: str | Path):
         self.root = Path(root)
@@ -62,6 +84,7 @@ class JobManager:
         return self._jobs.get(job_id)
 
     def summary(self, job: dict) -> dict:
+        result = job.get("result") or {}
         return {
             "id": job.get("id"),
             "created": job.get("created"),
@@ -75,7 +98,10 @@ class JobManager:
             "pending": job.get("pending"),
             "error": job.get("error"),
             "session": job.get("session"),
-            "ok": (job.get("result") or {}).get("ok") if job.get("result") else None,
+            "ok": result.get("ok") if result else None,
+            "last_step": job.get("last_step"),
+            "elapsed": job.get("elapsed"),
+            "answer": _answer_text(result),
         }
 
     # --- запуск ---
@@ -132,8 +158,37 @@ class JobManager:
                 return decision
 
             job["status"] = "running"
+            job["last_step"] = "запуск…"
             self._persist(job)
-            result = dispatcher.execute(task, approve=approve, dry_run=job["dry_run"])
+
+            def on_step(step, res, phase) -> None:
+                # phase: start | ok | error | unavailable | skipped | awaiting-approval | simulated
+                step_name = ""
+                if step is not None:
+                    cap = getattr(step, "capability", "") or ""
+                    adapter = getattr(step, "adapter", "") or ""
+                    step_name = f"{cap} ({adapter})" if cap and adapter else (cap or adapter)
+                if phase == "start":
+                    job["last_step"] = f"выполняется: {step_name}…"
+                else:
+                    ok = bool(getattr(res, "ok", False)) if res is not None else False
+                    status = getattr(res, "status", phase) if res is not None else phase
+                    if ok:
+                        job["last_step"] = f"готово: {step_name}"
+                    else:
+                        err = getattr(res, "error", None) if res is not None else None
+                        job["last_step"] = f"отказ на шаге {step_name}" + (f": {err}" if err else "")
+                        job["error"] = job.get("error") or err
+                try:
+                    start = datetime.fromisoformat(job.get("created"))
+                    job["elapsed"] = round(
+                        (datetime.now(timezone.utc) - start).total_seconds(), 1)
+                except (ValueError, TypeError):
+                    pass
+                self._persist(job)
+
+            result = dispatcher.execute(task, approve=approve,
+                                        dry_run=job["dry_run"], on_step=on_step)
             job["result"] = result
             if result.get("ok"):
                 job["status"] = "done"
@@ -154,16 +209,22 @@ class JobManager:
         if not session_id:
             return
         result = job.get("result") or {}
-        lines = [f"Задача {job.get('id')}: {job.get('status')}"]
-        if isinstance(result, dict) and result.get("ok") is not None:
-            lines.append(f"ok={result.get('ok')}")
-        catalog = result.get("catalog") if isinstance(result, dict) else None
-        if isinstance(catalog, dict) and catalog.get("path"):
-            lines.append(f"каталог: {catalog['path']}")
-        elif isinstance(catalog, str) and catalog:
-            lines.append(f"каталог: {catalog}")
-        if job.get("error"):
-            lines.append(f"ошибка: {job['error']}")
+        status = job.get("status")
+        answer = _answer_text(result)
+
+        if status == "done" and answer:
+            # прямой ответ нейросетей — главное сообщение в чат
+            lines = [answer]
+        else:
+            lines = [f"Задача {job.get('id')}: {status}"]
+            if job.get("error"):
+                lines.append(f"отказ: {job['error']}")
+            elif status == "failed":
+                lines.append("отказ: задача завершилась с ошибкой без ответа")
+            elif status == "stopped":
+                lines.append("остановлена оператором")
+            if answer:
+                lines.append(f"\n{answer}")
         self.sessions.append(str(session_id), "assistant", "\n".join(lines),
                              job_id=job.get("id"))
 

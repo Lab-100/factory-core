@@ -83,7 +83,7 @@ class DoctorTest(unittest.TestCase):
         data = run_doctor(self.settings)
         self.assertEqual(set(data), {"adapters", "integrations"})
         self.assertTrue(data["adapters"])
-        self.assertEqual(len(data["integrations"]), 3)
+        self.assertEqual(len(data["integrations"]), 4)
         for row in data["integrations"]:
             self.assertIn("integration", row)
             self.assertIn("available", row)

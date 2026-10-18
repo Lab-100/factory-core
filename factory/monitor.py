@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -212,11 +213,13 @@ class LaunchMonitor:
     def run(self, timeout: float | None = None) -> dict:
         """Запустить команду и вернуть отчёт. Исключения наружу не летят."""
         started = time.monotonic()
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
         try:
             proc = subprocess.Popen(
                 self.command, cwd=self.cwd, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
-                errors="replace", bufsize=1,
+                errors="replace", bufsize=1, env=env,
             )
         except FileNotFoundError as exc:
             self._add("stderr", f"команда не найдена: {self.command[0] if self.command else '?'} ({exc})")

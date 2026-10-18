@@ -267,6 +267,7 @@ class StatusTest(NetsuiteBase):
         (root / "bin" / "singbox" / "1.3").mkdir(parents=True)
         (root / "bin" / "singbox" / "1.3" / "sing-box.exe").write_text("x", encoding="utf-8")
         netsuite.set_param(self.settings, "region-spoof", "root", str(root))
+        netsuite.set_param(self.settings, "region-spoof", "strategy", "singbox")
         netsuite.apply(self.settings, "region-spoof")
         row = netsuite.status(self.settings, "region-spoof")
         self.assertTrue(row["root_exists"])
@@ -399,13 +400,13 @@ class IntegrationTest(NetsuiteBase):
 
     def test_health_with_config(self) -> None:
         netsuite.set_param(self.settings, "region-spoof", "enabled", "true")
+        # средство настроено, но корень отсутствует → «готовность» честно False
+        netsuite.set_param(self.settings, "region-spoof", "root",
+                           str(self.root / "нет-корня"))
         integration = build_integrations(self.settings)["netsuite"]
         health = integration.health()
         self.assertTrue(health["configured"])
-        self.assertFalse(health["available"])  # включён общий переключатель? нет: enabled по умолчанию true
-        # общая галочка [netsuite] enabled пока не задана → честно False
-        health["available"] = netsuite.suite_enabled(self.settings)
-        self.assertFalse(health["available"])
+        self.assertFalse(health["available"])  # корень отсутствует → не готов
         emit = integration.emit({"kind": "probe"})
         self.assertTrue(emit["ok"])
         self.assertEqual(emit["sink"], "netsuite")

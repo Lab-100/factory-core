@@ -28,7 +28,7 @@ class IntegrationsTest(unittest.TestCase):
 
     def test_build(self) -> None:
         integrations = build_integrations(self.settings)
-        self.assertEqual(set(integrations), {"backup", "metrics", "infra"})
+        self.assertEqual(set(integrations), {"backup", "metrics", "infra", "netsuite"})
 
     def test_backup_local_fallback(self) -> None:
         backup = BackupIntegration(self.settings)

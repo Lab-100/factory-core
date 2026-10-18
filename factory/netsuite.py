@@ -36,6 +36,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -309,11 +310,45 @@ def pids_path(settings) -> Path:
 
 # --- параметры ----------------------------------------------------------------
 
+def _settings_data(settings) -> dict:
+    """Данные настроек; если словарь ещё пуст — подгружаем их из файла.
+
+    Так сервис остаётся работоспособным и для «свежего» ``Settings``,
+    который создан без чтения файла (например, в CLI или веб-панели).
+    """
+    if settings is None:
+        return {}
+    data = getattr(settings, "data", None)
+    if isinstance(data, dict) and not data:
+        path = getattr(settings, "path", None)
+        if path is not None:
+            path = Path(str(path))
+            if path.exists():
+                try:
+                    loaded = tomllib.loads(path.read_text(encoding="utf-8"))
+                except (OSError, tomllib.TOMLDecodeError):
+                    loaded = {}
+                if isinstance(loaded, dict) and loaded:
+                    settings.data = loaded
+                    data = loaded
+    return data if isinstance(data, dict) else {}
+
+
+def _dig(data: Any, dotted: str) -> Any:
+    """Значение по точечному пути в словаре (None, если пути нет)."""
+    current: Any = data
+    for part in dotted.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
 def _stored(settings, tool_id: str, key: str) -> Any:
     """Значение из настроек (как записано) или None, если не задано."""
     if settings is None:
         return None
-    return settings.get(f"{SECTION_ROOT}.{tool_id}.{key}", None)
+    return _dig(_settings_data(settings), f"{SECTION_ROOT}.{tool_id}.{key}")
 
 
 def _as_bool(value: Any, fallback: bool = False) -> bool:
@@ -489,10 +524,13 @@ def suite_enabled(settings) -> bool:
     """Общая галочка сервиса (``[netsuite] enabled``)."""
     if settings is None:
         return False
-    raw = settings.get("netsuite.enabled", None)
-    if raw is None:
-        return bool(settings.get("netsuite"))
-    return _as_bool(raw, fallback=True)
+    section = _dig(_settings_data(settings), SECTION_ROOT)
+    if not isinstance(section, dict):
+        return False
+    if "enabled" in section:
+        return _as_bool(section["enabled"], fallback=True)
+    # Явной галочки нет: сервис считается активным, если заданы его настройки.
+    return bool(section)
 
 
 # --- наблюдение ---------------------------------------------------------------
@@ -751,13 +789,19 @@ def _tool_status(settings, tool_id: str) -> dict:
 
 
 def status(settings, tool_id: str | None = None) -> dict:
-    """Состояние средств обхода (одного или всех сразу)."""
-    ids = [str(tool_id)] if tool_id else tool_ids()
-    rows: list[dict] = []
-    for item in ids:
+    """Состояние средств обхода (одного или всех сразу).
+
+    Без ``tool_id`` — сводка по всем средствам (``tools`` + ``summary``);
+    с ``tool_id`` — снимок одного средства (та же строка, что и в сводке).
+    """
+    if tool_id:
+        item = str(tool_id)
         if item not in TOOLS_BY_ID:
             return {"ok": False, "error": f"неизвестное средство: {item}"}
-        rows.append(_tool_status(settings, item))
+        row = _tool_status(settings, item)
+        row["ok"] = True
+        return row
+    rows: list[dict] = [_tool_status(settings, item) for item in tool_ids()]
     return {
         "schema": SCHEMA,
         "generated": _now(),
@@ -1363,6 +1407,9 @@ def summary(settings) -> dict:
         "on": data.get("summary", {}).get("enabled", 0),
         "running": data.get("summary", {}).get("running", 0),
         "applied": data.get("summary", {}).get("applied", 0),
+        # «Готово» — включённые средства, у которых на месте рабочий каталог.
+        "ready": sum(1 for row in data.get("tools", [])
+                     if row["enabled"] and row["root_exists"]),
         "issues": issues[:20],
         "hint": "" if not issues else "есть замечания: `factory netsuite status`",
     }

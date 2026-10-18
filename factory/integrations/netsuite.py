@@ -26,19 +26,20 @@ class NetSuiteIntegration:
         return None
 
     def available(self) -> bool:
-        """Настроен ли сервис (есть ли раздел [netsuite] с параметрами)."""
+        """Готов ли сервис: настроен и хотя бы одно средство реально запускаемо."""
         if self.settings is None:
             return False
         if not self.settings.get("netsuite"):
             return False
-        return netsuite.suite_enabled(self.settings)
+        summary = netsuite.summary(self.settings)
+        return bool(summary.get("configured")) and bool(summary.get("ready"))
 
     def health(self) -> dict:
         """Сводка состояния связки для раздела «Диагностика»."""
         summary = netsuite.summary(self.settings)
         return {
             "integration": self.name,
-            "available": bool(summary.get("configured")) and bool(summary.get("enabled")),
+            "available": bool(summary.get("configured")) and bool(summary.get("ready")),
             "shim": None,
             "sink": "netsuite",
             "configured": bool(summary.get("configured")),

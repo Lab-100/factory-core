@@ -246,6 +246,27 @@ class ChatTabTest(unittest.TestCase):
     def test_chat_section_excluded_from_section_nav(self) -> None:
         self.assertIn("filter(s=>!s.dataset.view)", page())
 
+    def test_board_is_default_view(self) -> None:
+        """По умолчанию открывается пульт (весь дашборд как был), чат —
+        дополнительная вкладка поверх существующего интерфейса."""
+        text = page()
+        self.assertIn("chatTab(localStorage.getItem('factory.view')==='chat'?'chat':'board');", text)
+        # без класса view-chat чат скрыт, все остальные разделы на месте
+        self.assertIn("main > section[data-view=chat]{display:none}", text)
+
+    def test_chat_is_full_screen(self) -> None:
+        """Чат занимает всю высоту экрана, а не малую часть вверху."""
+        text = page()
+        self.assertIn("height:calc(100vh - 170px)", text)
+        self.assertIn(".chatlog{flex:1;min-height:0;overflow-y:auto", text)
+        self.assertIn("body.view-chat main{max-width:none", text)
+
+    def test_chat_text_is_large_enough(self) -> None:
+        """Крупный читаемый текст: сообщения и строка запроса не мелкие."""
+        text = page()
+        self.assertIn("font-size:16px;line-height:1.55", text)
+        self.assertIn(".chatrow input{flex:1;font-size:16px;min-height:46px", text)
+
 
 if __name__ == "__main__":
     unittest.main()

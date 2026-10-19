@@ -223,6 +223,36 @@ def _minimize_all_workai() -> None:
         pass
 
 
+def _hide_all_workai_windows() -> None:
+    """Скрыть все видимые окна WorkAI (SW_HIDE) — окно не видимо,
+    не крадёт фокус, но живёт и продолжает принимать промпты (проверено:
+    и холодный, и тёплый запросы доставляются при скрытом окне)."""
+    try:
+        import ctypes
+        import psutil
+        user32 = ctypes.windll.user32
+        WINDOW_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        cands: list[int] = []
+
+        @WINDOW_ENUM
+        def _cb(hwnd, lparam):
+            cands.append(hwnd)
+            return True
+
+        user32.EnumWindows(_cb, 0)
+        for h in cands:
+            pid2 = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(pid2))
+            try:
+                p = psutil.Process(pid2.value)
+                if p.name().lower() == "workai.exe" and user32.IsWindowVisible(h):
+                    user32.ShowWindow(h, 0)  # SW_HIDE
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _kill_tree(pid: int) -> None:
     """Принудительно завершить процесс и всё его дерево (taskkill /T /F).
 
@@ -357,30 +387,30 @@ def main() -> int:
         print(f"DBG попыток {attempts}, файлов сессий {len(iter_session_files())}",
               file=sys.stderr)
 
-    # Стратегия: вызвали — ответила — закрылась.
+    # Стратегия: один скрытый WorkAI на серию запросов.
+    #  - окно поднимается мостом и СРАЗУ СКРЫВАЕТСЯ (не мешает пользователю,
+    #    не крадёт фокус); между запросами серии оно переиспользуется —
+    #    тёплые запросы доставляются в скрытое окно стабильно (проверено);
     #  - если WorkAI уже был открыт ПОЛЬЗОВАТЕЛЕМ до моста (before) — не
     #    трогаем его вовсе (это окно человека, не моста);
-    #  - если WorkAI поднял сам мост (холодный старт) — после ответа (или
-    #    таймаута) ОБЯЗАТЕЛЬНО закрываем поднятые окна целиком, чтобы они не
-    #    висели, когда никто не спрашивает.
-    # Это самый надёжный режим: серия вопросов не переиспользует окно (workai
-    # GUI не доставляет повторные промпты в уже открытое окно), поэтому
-    # каждый вопрос поднимает свежий экземпляр, отвечает и закрывается.
+    #  - если WorkAI поднял сам мост — помечаем «мостовым» маркером, чтобы
+    #    фоновый уборщик фабрики закрыл его после простоя (watchdog idle).
     if not before:
-        for pid2 in _workai_pids():
-            if pid2 not in before:
-                if debug:
-                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
-                          file=sys.stderr)
-                _kill_tree(pid2)
+        try:
+            marker = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "..", "..", "state", "workai_bridge.txt")
+            marker = os.path.abspath(marker)
+            with open(marker, "w", encoding="utf-8") as fh:
+                fh.write(str(time.time()))
+        except Exception:  # noqa: BLE001
+            pass
         if debug:
-            print("DBG WorkAI закрыт мостом (вызвали-ответили-закрылись)",
+            print("DBG WorkAI поднят мостом — отмечен для фоновой уборки",
                   file=sys.stderr)
-    else:
-        _minimize_all_workai()
-        if debug:
-            print("DBG WorkAI пользователя не трогаю (свёрнут обратно)",
-                  file=sys.stderr)
+    _hide_all_workai_windows()
+    if debug:
+        print("DBG WorkAI скрыт (переиспользуется следующими запросами)",
+              file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

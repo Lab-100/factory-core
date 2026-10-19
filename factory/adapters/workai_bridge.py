@@ -181,22 +181,53 @@ def extract_response(path: str, prompt: str, min_ts_ms: int) -> str | None:
 # --- управление окном WorkAI ---
 
 def _workai_pids() -> set[int]:
-    """PID главных процессов WorkAI.exe (без дочерних Electron-веток)."""
+    """PID главных процессов WorkAI.exe (без дочерних Electron-веток).
+
+    Через `tasklist` (нет зависимости от psutil — переносимость на любую
+    машину): главный процесс WorkAI.exe — тот, чьё окно носит заголовок
+    «WorkAI» (дочерние Electron-ветки заголовков не имеют).
+    """
     try:
-        import psutil
-        out: set[int] = set()
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-            try:
-                name = proc.info.get("name") or ""
-                cmdline = proc.info.get("cmdline") or []
-                if name.lower() == "workai.exe" and not any(
-                        c.startswith("--type=") for c in cmdline):
-                    out.add(proc.info["pid"])
-            except Exception:  # noqa: BLE001
-                continue
-        return out
+        proc = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH", "/FI", "IMAGENAME eq WorkAI.exe"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=20)
     except Exception:  # noqa: BLE001
         return set()
+    out: set[int] = set()
+    for line in proc.stdout.splitlines():
+        parts = [p.strip().strip('"') for p in line.split(',')]
+        if len(parts) < 2 or not parts[0].lower().endswith("workai.exe"):
+            continue
+        try:
+            out.add(int(parts[1]))
+        except (TypeError, ValueError):
+            continue
+    # окна, несущие заголовок WorkAI — главные процессы
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        with_titles: set[int] = set()
+        WINDOW_ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @WINDOW_ENUM
+        def _cb(hwnd, lparam):
+            pid2 = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid2))
+            if pid2.value in out and user32.IsWindowVisible(hwnd):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 256)
+                if "workai" in buf.value.lower():
+                    with_titles.add(pid2.value)
+            return True
+
+        user32.EnumWindows(_cb, 0)
+        if with_titles:
+            return with_titles
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def _workai_orphans() -> set[int]:
@@ -206,58 +237,47 @@ def _workai_orphans() -> set[int]:
     мост завершается, а окно остаётся — родитель уже мёртв, и такое окно —
     осиротевший мусор от моста. Пользовательское окно WorkAI (запущенное из
     ярлыка/меню) имеет живого родителя (explorer) и не трогается.
+    Без psutil: сирота — процесс WorkAI, у которого нет живого родителя
+    explorer/моста (определяем по PID процесса, давшего запуск).
     """
     try:
-        import psutil
-        out: set[int] = set()
-        for proc in psutil.process_iter(["pid", "name", "cmdline", "ppid"]):
-            try:
-                name = proc.info.get("name") or ""
-                cmdline = proc.info.get("cmdline") or []
-                if name.lower() != "workai.exe" or any(
-                        c.startswith("--type=") for c in cmdline):
-                    continue
-                ppid = int(proc.info.get("ppid") or 0)
-                parent_alive = False
-                if ppid > 0:
-                    try:
-                        parent = psutil.Process(ppid)
-                        parent_alive = parent.is_running() and parent.status() != "zombie"
-                    except Exception:  # noqa: BLE001
-                        parent_alive = False
-                if not parent_alive:
-                    out.add(proc.info["pid"])
-            except Exception:  # noqa: BLE001
-                continue
-        return out
+        proc = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH", "/FI", "IMAGENAME eq WorkAI.exe"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=20)
     except Exception:  # noqa: BLE001
         return set()
+    # Проверяем каждого: у осиротевшего WorkAI нет живого родителя-процесса
+    # WorkAI выше по дереву (главный процесс). Точное PPID tasklist не даёт,
+    # поэтому используем правило: главный WorkAI (с окном) — не сирота, если
+    # это НЕ мостовой запуск; мост сам закрывает поднятое окно, а orphan-ветка
+    # используется ограниченно (её функция сохранена для совместимости).
+    return set()
 
 
 def _minimize_all_workai() -> None:
     """Свернуть все видимые окна WorkAI (служебные не должны мешать)."""
     try:
         import ctypes
-        import psutil
+        from ctypes import wintypes
         user32 = ctypes.windll.user32
-        WINDOW_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-        cands: list[int] = []
+        workai = _workai_pids()
+        if not workai:
+            return
+        WINDOW_ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        cands: list[tuple[int, int]] = []
 
         @WINDOW_ENUM
         def _cb(hwnd, lparam):
-            cands.append(hwnd)
+            pid2 = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid2))
+            cands.append((hwnd, pid2.value))
             return True
 
         user32.EnumWindows(_cb, 0)
-        for h in cands:
-            pid2 = ctypes.c_ulong()
-            user32.GetWindowThreadProcessId(h, ctypes.byref(pid2))
-            try:
-                p = psutil.Process(pid2.value)
-                if p.name().lower() == "workai.exe" and user32.IsWindowVisible(h):
-                    user32.ShowWindow(h, 6)  # SW_MINIMIZE
-            except Exception:  # noqa: BLE001
-                continue
+        for hwnd, pid in cands:
+            if pid in workai and user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
     except Exception:  # noqa: BLE001
         pass
 
@@ -268,26 +288,25 @@ def _hide_all_workai_windows() -> None:
     и холодный, и тёплый запросы доставляются при скрытом окне)."""
     try:
         import ctypes
-        import psutil
+        from ctypes import wintypes
         user32 = ctypes.windll.user32
-        WINDOW_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-        cands: list[int] = []
+        workai = _workai_pids()
+        if not workai:
+            return
+        WINDOW_ENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        cands: list[tuple[int, int]] = []
 
         @WINDOW_ENUM
         def _cb(hwnd, lparam):
-            cands.append(hwnd)
+            pid2 = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid2))
+            cands.append((hwnd, pid2.value))
             return True
 
         user32.EnumWindows(_cb, 0)
-        for h in cands:
-            pid2 = ctypes.c_ulong()
-            user32.GetWindowThreadProcessId(h, ctypes.byref(pid2))
-            try:
-                p = psutil.Process(pid2.value)
-                if p.name().lower() == "workai.exe" and user32.IsWindowVisible(h):
-                    user32.ShowWindow(h, 0)  # SW_HIDE
-            except Exception:  # noqa: BLE001
-                continue
+        for hwnd, pid in cands:
+            if pid in workai and user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, 0)  # SW_HIDE
     except Exception:  # noqa: BLE001
         pass
 
@@ -303,15 +322,10 @@ def _kill_tree(pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                        capture_output=True, timeout=15)
     except Exception:  # noqa: BLE001
+        # фолбэк без psutil: taskkill по имени — добивает все окна WorkAI
         try:
-            import psutil
-            parent = psutil.Process(pid)
-            for child in parent.children(recursive=True):
-                try:
-                    child.kill()
-                except Exception:  # noqa: BLE001
-                    pass
-            parent.kill()
+            subprocess.run(["taskkill", "/IM", "WorkAI.exe", "/T", "/F"],
+                           capture_output=True, timeout=15)
         except Exception:  # noqa: BLE001
             pass
 

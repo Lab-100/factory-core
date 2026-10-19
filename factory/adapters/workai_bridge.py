@@ -563,8 +563,13 @@ def main() -> int:
                     print("DBG WorkAI не поднимаю (мало памяти), использую существующий",
                           file=sys.stderr)
         if debug:
-            print("DBG до запуска:", bool(before), file=sys.stderr)
-        if not before:
+            print("DBG до запуска:", bool(before) or (ram_ok and not before), file=sys.stderr)
+        # Запускаем WorkAI только если он ещё не поднят И память позволяет.
+        if not before and not ram_ok:
+            if debug:
+                print("DBG памяти мало — WorkAI не запускаю, жду ответа "
+                      "(или таймаута) в существующем окне", file=sys.stderr)
+        elif not before:
             try:
                 if WORKAI_EXE:
                     subprocess.Popen([WORKAI_EXE],

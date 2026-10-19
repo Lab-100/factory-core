@@ -79,23 +79,32 @@ def _free_ram_pct() -> float:
         return float("nan")
 
 
-def _wait_for_ram(prompt_repr: str, debug: bool) -> None:
-    """Дожидаемся, пока свободная память не станет ≥ MIN_FREE_RAM_PCT.
+def _wait_for_ram(prompt_repr: str, debug: bool) -> bool:
+    """Дождаться, пока свободная память станет не ниже MIN_FREE_RAM_PCT.
 
     Параллельные задачи могут держать запущенный WorkAI; перед тем как
-    поднять ещё один — уступаем, пока ОС не освободит хотя бы порог,
-    либо пока не выйдет таймаут (тогда работаем как есть).
+    поднять ЕЩЁ один — уступаем, пока ОС не освободит хотя бы порог.
+    Возвращает True, если запуск разрешён; False — память так и не
+    освободилась, запуск лучше отложить/отказать (не забивать систему).
     """
+    if _free_ram_pct() == _free_ram_pct():  # не NaN
+        if _free_ram_pct() >= MIN_FREE_RAM_PCT:
+            return True
     deadline = time.time() + 120
     while time.time() < deadline:
         pct = _free_ram_pct()
         if pct == pct:  # не NaN
             if pct >= MIN_FREE_RAM_PCT:
-                return
+                return True
             if debug:
                 print(f"DBG память {pct:.0f}% свободно < {MIN_FREE_RAM_PCT:.0f}% — жду",
                       file=sys.stderr)
         time.sleep(3)
+    final = _free_ram_pct()
+    if debug:
+        print(f"DBG память так и не освободилась ({final:.0f}% свободно) — "
+              f"запуск отложен", file=sys.stderr)
+    return False
 
 
 def _acquire_launch_lock(debug: bool) -> bool:
@@ -491,7 +500,11 @@ def main() -> int:
                 print("DBG после ожидания WorkAI:", bool(before), file=sys.stderr)
         else:
             # ответственный за запуск: проверяем память и число инстансов
-            _wait_for_ram(prompt[:60], debug)
+            ram_ok = _wait_for_ram(prompt[:60], debug)
+            if not ram_ok:
+                if debug:
+                    print("DBG памяти мало — не поднимаю новый WorkAI",
+                          file=sys.stderr)
             n = _count_running_instances()
             if n >= MAX_WORKAI_INSTANCES:
                 if debug:
@@ -501,6 +514,13 @@ def main() -> int:
                 while time.time() < deadline and _count_running_instances() >= MAX_WORKAI_INSTANCES:
                     time.sleep(2)
                 before = _workai_pids()
+            elif not ram_ok:
+                # память так и не освободилась — работаем через уже открытое
+                # окно (если есть), новый экземпляр не поднимаем
+                before = _workai_pids()
+                if debug:
+                    print("DBG WorkAI не поднимаю (мало памяти), использую существующий",
+                          file=sys.stderr)
         if debug:
             print("DBG до запуска:", bool(before), file=sys.stderr)
         if not before:

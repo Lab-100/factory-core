@@ -1,6 +1,7 @@
 """Тесты упаковки дистрибутива и поиска средств сборки."""
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 import zipfile
@@ -105,6 +106,20 @@ class SourceRootTest(unittest.TestCase):
         # исходников рядом нет — возвращаем сам корень (сборка честно
         # упадёт с понятной ошибкой, а не соберёт из чужого каталога)
         self.assertEqual(_source_root(orphan), orphan)
+
+    def test_finds_source_via_env(self) -> None:
+        src = self._source()
+        orphan = src.parent / "установка-без-исходников"
+        orphan.mkdir(parents=True, exist_ok=True)
+        old = os.environ.get("FACTORY_SOURCE")
+        os.environ["FACTORY_SOURCE"] = str(src)
+        try:
+            self.assertEqual(_source_root(orphan), src)
+        finally:
+            if old is None:
+                os.environ.pop("FACTORY_SOURCE", None)
+            else:
+                os.environ["FACTORY_SOURCE"] = old
 
 
 if __name__ == "__main__":

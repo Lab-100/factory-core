@@ -114,8 +114,9 @@ def _source_root(root: Path) -> Path:
 
     В исходниках root — он сам: здесь и run.py, и config/settings.toml.
     В установленной (frozen) копии repo_root() возвращает каталог установки,
-    где нет run.py — ищем исходники рядом: сначала в том же месте, затем
-    выше/ниже по дереву от корня. Без этого `factory release` из установки
+    где нет run.py — ищем исходники: 1) переменная окружения FACTORY_SOURCE;
+    2) FACTORY_HOME, если он указывает на исходники; 3) вверх по дереву от
+    корня; 4) подпапки корня. Без этого `factory release` из установки
     падал на «Script file 'run.py' does not exist».
     """
     def is_source(path: Path) -> bool:
@@ -123,6 +124,10 @@ def _source_root(root: Path) -> Path:
 
     if is_source(root):
         return root
+    for env_name in ("FACTORY_SOURCE", "FACTORY_HOME"):
+        candidate = os.environ.get(env_name, "").strip()
+        if candidate and is_source(Path(candidate)):
+            return Path(candidate)
     # ищем вверх от root (общий случай: установка в подпапке репозитория)
     cur = root
     while True:

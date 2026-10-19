@@ -207,6 +207,12 @@ enabled = false
 command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
 bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge.py"
 
+[providers.cascade]
+# Headless-каскад: Ollama -> opencode -> pollinations -> claude-code -> workai-gui.
+# Пробует исполнителей по порядку, возвращает первый непустой ответ. Без окон.
+# Включён основным исполнителем для answer/code/deep-research (см. routing).
+enabled = true
+
 [providers.cline]
 # РџСЂРѕРІР°Р№РґРµСЂ Cline (CLI). РџСЂРѕРјРїС‚ РїРѕРґР°С‘С‚СЃСЏ С‡РµСЂРµР· РјРѕСЃС‚ cline_bridge.py
 # (СЃРј. factory/adapters/cline_bridge.py): РѕРЅ С‡РёС‚Р°РµС‚ stdin Рё РІС‹Р·С‹РІР°РµС‚ Cline,

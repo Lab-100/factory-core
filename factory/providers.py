@@ -69,6 +69,14 @@ PROVIDERS: dict[str, dict] = {
         # себе ответ в stdout не печатает).
         "run": ["bridge"],
     },
+    "cascade": {
+        "title": "Cascade (headless-каскад: Ollama → opencode → pollinations → claude → workai)",
+        "commands": [],
+        "paths": [],
+        # headless-каскад: stdin -> stdout (без окон, локальный, бесплатный).
+        "run": ["bridge"],
+        "bridge_default": "cascade_bridge.py",
+    },
     "multitool": {
         "title": "MultiTool",
         "commands": ["multitool", "mt"],
@@ -116,6 +124,16 @@ WORKAI_BRIDGE_DEFAULT = str(
 # Переопределяется настройкой providers.cline.bridge.
 CLINE_BRIDGE_DEFAULT = str(
     Path(__file__).resolve().parent / "adapters" / "cline_bridge.py"
+)
+
+# Путь по умолчанию к мосту headless-каскада (stdin -> stdout). Каскад пробует
+# Ollama → opencode → pollinations → claude-code → workai-gui и возвращает
+# первый непустой ответ. Без окон, локальный, бесплатный.
+CASCADE_BRIDGE_DEFAULT = str(
+    Path(__file__).resolve().parent / "adapters" / "cascade_bridge.py"
+)
+CASCADE_BRIDGE_SANDBOX = str(
+    Path(__file__).resolve().parent / "adapters" / "ollama_sandbox.py"
 )
 
 # Бесплатная модель Cline по умолчанию (цена 0, баланс не требуется).
@@ -215,6 +233,23 @@ def run_command(settings, name: str) -> list[str]:
             configured_python = settings.get("adapters.workai_python")
             if configured_python:
                 python = str(configured_python)
+        return [python, bridge]
+
+    if str(name) == "cascade":
+        # Headless-каскад: reads stdin -> produces answer. Мост лежит рядом с
+        # пакетом; переопределяется providers.cascade.bridge.
+        bridge = CASCADE_BRIDGE_DEFAULT
+        if settings is not None:
+            configured = str(settings.get("providers.cascade.bridge", "") or "").strip()
+            if configured:
+                bridge = configured
+        if not os.path.isfile(str(bridge)):
+            from .paths import repo_root
+            seeded = repo_root(settings) if settings is not None else repo_root()
+            candidate = str(seeded / "cascade_bridge.py")
+            if os.path.isfile(candidate):
+                bridge = candidate
+        python = resolve_python()
         return [python, bridge]
 
     if str(name) == "cline":

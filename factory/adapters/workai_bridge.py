@@ -683,7 +683,10 @@ def main() -> int:
         if debug:
             print("DBG WorkAI поднят мостом — отмечен для фоновой уборки",
                   file=sys.stderr)
-    _hide_all_workai_windows()
+    try:
+        _hide_all_workai_windows()
+    except Exception:  # noqa: BLE001
+        pass
     if debug:
         print("DBG WorkAI скрыт (переиспользуется следующими запросами)",
               file=sys.stderr)

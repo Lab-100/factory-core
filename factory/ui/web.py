@@ -770,12 +770,13 @@ async function realChatSend(text,inp,msg){
  await appendChatNote(text,'user');
  await openChat(chatCurrent);
  if(msg) msg.textContent=T.chatWait;
- /* вопрос идёт напрямую в WorkAI (мост external_agent->WorkAI), без синтеза,
-    без code-шага и без параллельного опроса всех провайдеров — один шаг
-    answer на провайдере workai, надёжная доставка */
+/* вопрос идёт через оркестратора-каскад (серверные ИИ → claude-code →
+     opencode → workai → локальные), а не напрямую в WorkAI: это часть
+     ротации провайдеров, а не единственный канал. При полном провале
+     каскад вернёт отчёт «реши сам или верни задачу». */
 const body={schema:'invr.task/1',goal:text,session:chatCurrent,
    capabilities:['answer'],
-   constraints:{synthesize:false,timeout_s:480},inputs:{provider:'workai'}};
+   constraints:{synthesize:false,timeout_s:480},inputs:{provider:'cascade'}};
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }

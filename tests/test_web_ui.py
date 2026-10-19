@@ -352,16 +352,17 @@ class ChatTabTest(unittest.TestCase):
         self.assertIn("await appendChatNote(text,'user');", text)
         self.assertIn("async function appendChatNote(text,role){", text)
 
-    def test_chat_send_goes_directly_to_workai_without_synthesis(self) -> None:
-        """Запрос из чата идёт напрямую в WorkAI одним шагом answer
-        (provider + synthesize:false + capabilities:['answer'] + timeout_s 240
-        для холодного старта WorkAI), минуя code-шаг и хрупкий синтез
-        по всем провайдерам."""
+    def test_chat_send_goes_through_orchestrator_cascade(self) -> None:
+        """Запрос из чата идёт через оркестратора-каскад (provider:cascade),
+        а не напрямую в WorkAI: серверные ИИ → claude-code → opencode →
+        workai → локальные. synthesize:false + capabilities:['answer'] +
+        timeout_s 480 — один шаг answer без синтеза и code-шага."""
         text = page()
         self.assertIn("capabilities:['answer']", text)
         self.assertIn("synthesize:false", text)
-        self.assertIn("timeout_s:240", text)
-        self.assertIn("provider:'workai'", text)
+        self.assertIn("timeout_s:480", text)
+        self.assertIn("provider:'cascade'", text)
+        self.assertNotIn("provider:'workai'", text)
 
 
 if __name__ == "__main__":

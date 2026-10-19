@@ -1636,6 +1636,28 @@ def serve(host: str | None = None, port: int | None = None,
                 print(tr("web.browser_reused", url=url))
     except Exception:  # noqa: BLE001 — открытие браузера не критично
         pass
+    # Фоновая супервизия в web-режиме: Watchdog регулярно (интервал
+    # watchdog.interval_s, по умолчанию 30 с) закрывает WorkAI, поднятый
+    # мостом, если он простаивает дольше watchdog.workai_idle_s (300 с) и
+    # активных задач нет. Без этой петли уборка работала бы только при
+    # ручном `factory watchdog`.
+    try:
+        import threading
+        from ..watchdog import Watchdog
+
+        wd_interval = float(
+            settings.get("watchdog.interval_s", 30) or 30)
+
+        def _watchdog_loop() -> None:
+            try:
+                Watchdog(settings, root=root, ledger=ledger).run(
+                    interval=wd_interval)
+            except Exception:  # noqa: BLE001 — супервизия не критична для веба
+                pass
+
+        threading.Thread(target=_watchdog_loop, daemon=True).start()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -203,7 +203,9 @@ def _workai_pids() -> set[int]:
             out.add(int(parts[1]))
         except (TypeError, ValueError):
             continue
-    # окна, несущие заголовок WorkAI — главные процессы
+    # окна, несущие заголовок WorkAI — главные процессы (И скрытые тоже:
+    # SW_HIDE не удаляет заголовок, а без этого окна «мостовой» WorkAI не
+    # распознавался бы как запущенный, и тёплый запрос уходил бы в перезапуск)
     try:
         import ctypes
         from ctypes import wintypes
@@ -215,7 +217,7 @@ def _workai_pids() -> set[int]:
         def _cb(hwnd, lparam):
             pid2 = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid2))
-            if pid2.value in out and user32.IsWindowVisible(hwnd):
+            if pid2.value in out:
                 buf = ctypes.create_unicode_buffer(256)
                 user32.GetWindowTextW(hwnd, buf, 256)
                 if "workai" in buf.value.lower():

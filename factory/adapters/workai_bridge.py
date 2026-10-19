@@ -636,6 +636,7 @@ def main() -> int:
     deadline = time.time() + TIMEOUT_S
     attempts = 0
     answer = None
+    last_hide = 0.0
     while time.time() < deadline:
         attempts += 1
         for path in iter_session_files():
@@ -645,6 +646,12 @@ def main() -> int:
                 break
         if answer:
             break
+        # Electron периодически пере-показывает окно WorkAI (новая вкладка,
+        # фан-окно прогресса). Прячем его каждые пару секунд — иначе окно
+        # выскакивает на передний план и крадёт фокус у пользователя.
+        if time.time() - last_hide >= 2.5:
+            _hide_all_workai_windows()
+            last_hide = time.time()
         time.sleep(POLL_S)
 
     if debug:

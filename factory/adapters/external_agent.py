@@ -9,7 +9,10 @@ Void, Zen, workAI, MultiTool) и возвращает его ответ. Про�
 from __future__ import annotations
 
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+_IS_WINDOWS = sys.platform.startswith("win")
 
 from .. import providers
 from .base import Adapter, StepResult
@@ -38,17 +41,30 @@ class ExternalAgentAdapter(Adapter):
         return candidates[0] if candidates else None
 
     @staticmethod
+    def _popen_kwargs() -> dict:
+        """Скрытый запуск дочернего CLI на Windows: консольное окно не
+        мелькает и не крадёт фокус у пользователя (CREATE_NO_WINDOW +
+        STARTF_USESHOWWINDOW/SW_HIDE). На других ОС — пусто."""
+        try:
+            if _IS_WINDOWS:
+                return {"creationflags": getattr(
+                    subprocess, "CREATE_NO_WINDOW", 0)}
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    @staticmethod
     def _execute(command: list, prompt: str, prompt_arg: bool, timeout: int) -> tuple[int, str]:
         cmd = [*command, prompt] if prompt_arg else command
         try:
+            kwargs: dict = {"capture_output": True, "text": True,
+                            "timeout": timeout, "encoding": "utf-8",
+                            "errors": "replace"}
+            kwargs.update(ExternalAgentAdapter._popen_kwargs())
             if prompt_arg:
-                proc = subprocess.run(cmd, capture_output=True, text=True,
-                                      timeout=timeout, encoding="utf-8",
-                                      errors="replace")
+                proc = subprocess.run(cmd, **kwargs)
             else:
-                proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
-                                      timeout=timeout, encoding="utf-8",
-                                      errors="replace")
+                proc = subprocess.run(cmd, input=prompt, **kwargs)
         except Exception as exc:  # noqa: BLE001
             return -1, str(exc)
         return proc.returncode, (proc.stdout or "")

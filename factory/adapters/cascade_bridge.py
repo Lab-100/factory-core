@@ -31,9 +31,12 @@ from pathlib import Path
 
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
-# Локальные модели (Ollama) по умолчанию исключены из каскада. Включить
-# руками можно env-переменной CASCADE_ORDER, добавив в неё "ollama".
-DEFAULT_ORDER = "pollinations,opencode,claude-code,workai-gui"
+# Порядок ротации: сначала облачные/серверные ИИ (без окон, бесплатно),
+# затем CLI-агенты (claude-code, opencode), затем GUI WorkAI (последнее
+# окно), и в самом конце — локальные модели (Ollama), если включены.
+# Отключать любое звено можно убрав его из CASCADE_ORDER (env) или
+# отключив соответствующий провайдер на дашборде.
+DEFAULT_ORDER = "pollinations,claude-code,opencode,workai-gui,ollama"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
@@ -146,26 +149,32 @@ def try_claude_code(prompt: str) -> tuple[bool, str, str]:
 
 
 def try_workai_gui(prompt: str) -> tuple[bool, str, str]:
-    # Последний вариант: GUI-окно WorkAI (как старый workai_bridge).
-    # Пути — динамически (без хардкода): из workai_bridge._find_workai
-    # (env WORKAI_CMD/WORKAI_EXE, PATH, стандартные каталоги Windows).
+    # Последний вариант: GUI-окно WorkAI. Запускаем через защищённый мост
+    # workai_bridge (мьютекс запуска, проверка памяти ≥20% свободно, лимит
+    # инстансов, скрытие окон, автозакрытие по простою) — чтобы каскад не
+    # наоткрывал кучу окон WorkAI и не забивал память.
+    bridge = ""
     try:
         from .workai_bridge import _find_workai
         cmd, _exe = _find_workai()
+        bridge = os.environ.get("WORKAI_BRIDGE", "") or (cmd or "")
     except Exception:  # noqa: BLE001
-        cmd, _exe = None, None
-    bridge = os.environ.get("WORKAI_BRIDGE", "") or (cmd or "")
+        bridge = os.environ.get("WORKAI_BRIDGE", "")
     if not bridge:
         return False, "", "workai-gui: WorkAI не найден"
     try:
+        # полноценный мост: stdin -> stdout (read_prompt, подъём окна,
+        # опрос сессии, скрытие) — все защиты уже внутри.
         proc = subprocess.run(
-            [bridge, "chat", prompt, "-m", "ask", "-r"],
+            [sys.executable, str(Path(__file__).resolve().parent / "workai_bridge.py")],
             input=prompt, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=TIMEOUT_S,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception as exc:  # noqa: BLE001
         return False, "", f"workai-gui: {exc}"
+    if proc.returncode != 0:
+        return False, "", f"workai-gui: rc={proc.returncode}, {(proc.stderr or '').strip()[:200]}"
     text = (proc.stdout or "").strip()
     if _bad(text):
         return False, "", "workai-gui: пустой/ошибка"
@@ -196,15 +205,18 @@ def main() -> int:
     start = time.monotonic()
     pid = os.getpid()
     total_deadline = start + MAX_TOTAL_S
+    attempts: list[tuple[str, str]] = []
     log(f"=== КАСКАД старт order={order} prompt={prompt[:60]!r} max_total={MAX_TOTAL_S}s ===")
 
     for name in (n.strip() for n in order.split(",") if n.strip()):
         if time.monotonic() >= total_deadline:
             log(f"каскад: общий бюджет {MAX_TOTAL_S}с исчерпан, прекращаю", "WARN")
+            attempts.append((name, f"общий бюджет {MAX_TOTAL_S}с исчерпан"))
             break
         fn = CASCADES.get(name)
         if not fn:
             log(f"каскад {name}: неизвестен, пропуск", "WARN")
+            attempts.append((name, "неизвестен"))
             continue
         t = time.monotonic()
         log(f"каскад: пробую {name} ...")
@@ -220,12 +232,31 @@ def main() -> int:
             sys.stdout.flush()
             return 0
         log(f"каскад: {name} отказ ({dt_ms}ms): {err}", "WARN")
+        attempts.append((name, err or "нет ответа"))
 
     dur_ms = int((time.monotonic() - start) * 1000)
     msg = f"каскад: все исполнители не дали ответа ({order})"
     log(msg, "ERROR")
     _answer_file("FAILED", "", prompt, "", dur_ms, msg, pid, utc_start)
-    sys.stderr.write(f"ERROR: {msg}\n")
+    # Отчёт заказчику: перечисляем, кого пробовали и почему не вышло,
+    # и возвращаем приказ — решай сам или переотправь задачу.
+    report_lines = [
+        "НЕ УДАЛОСЬ ПОЛУЧИТЬ ОТВЕТ НИ ОТ ОДНОГО ИСПОЛНИТЕЛЯ.",
+        f"Цепочка провайдеров ({order}):",
+    ]
+    for name in (n.strip() for n in order.split(",") if n.strip()):
+        reason = "неизвестен/пропущен"
+        for stored in reversed(attempts or []):
+            if stored[0] == name:
+                reason = stored[1]
+                break
+        report_lines.append(f"  - {name}: {reason}")
+    report_lines.append(
+        "ПРИКАЗ: решай сам или верни задачу заказчику (все исполнители "
+        "недоступны или исчерпали лимит).")
+    report = "\n".join(report_lines)
+    sys.stdout.write(report)
+    sys.stdout.flush()
     return 2
 
 

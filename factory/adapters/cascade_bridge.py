@@ -34,6 +34,7 @@ from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, L
 DEFAULT_ORDER = "pollinations,ollama,opencode,claude-code,workai-gui"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
+MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
 
@@ -106,10 +107,15 @@ def try_pollinations(prompt: str) -> tuple[bool, str, str]:
     req = urllib.request.Request(
         "https://text.pollinations.ai/openai", data=body,
         headers={"Content-Type": "application/json"}, method="POST")
+    # Жёсткий короткий таймаут: pollinations бывает недоступен/медленный,
+    # и нельзя чтобы фабрика ждала его полный TIMEOUT_S (висла бы).
+    poll_timeout = int(os.environ.get("CASCADE_POLLINATIONS_TIMEOUT", "30"))
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        with urllib.request.urlopen(req, timeout=poll_timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+    except urllib.error.HTTPError as exc:
+        return False, "", f"pollinations: HTTP {exc.code}"
     except Exception as exc:  # noqa: BLE001
         return False, "", f"pollinations: {exc}"
     if _bad(text):
@@ -179,9 +185,13 @@ def main() -> int:
     utc_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     start = time.monotonic()
     pid = os.getpid()
-    log(f"=== КАСКАД старт order={order} prompt={prompt[:60]!r} ===")
+    total_deadline = start + MAX_TOTAL_S
+    log(f"=== КАСКАД старт order={order} prompt={prompt[:60]!r} max_total={MAX_TOTAL_S}s ===")
 
     for name in (n.strip() for n in order.split(",") if n.strip()):
+        if time.monotonic() >= total_deadline:
+            log(f"каскад: общий бюджет {MAX_TOTAL_S}с исчерпан, прекращаю", "WARN")
+            break
         fn = CASCADES.get(name)
         if not fn:
             log(f"каскад {name}: неизвестен, пропуск", "WARN")

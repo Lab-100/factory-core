@@ -9,3 +9,9 @@
 [2026-10-19 15:24:23.803] [INFO] каскад: pollinations ОК (5 симв., 1854ms)
 [2026-10-19 15:24:33.116] [INFO] === КАСКАД старт order=pollinations,ollama,opencode,claude-code,workai-gui prompt='Ответь одним коротким предложением: ты работаешь.' ===
 [2026-10-19 15:24:33.117] [INFO] каскад: пробую pollinations ...
+[2026-10-19 15:27:08.320] [INFO] === КАСКАД старт order=pollinations,ollama,opencode,claude-code,workai-gui prompt='Скажи слово: молоток' ===
+[2026-10-19 15:27:08.321] [INFO] каскад: пробую pollinations ...
+[2026-10-19 15:27:13.217] [INFO] каскад: pollinations ОК (7 симв., 4895ms)
+[2026-10-19 15:27:44.682] [INFO] === КАСКАД старт order=pollinations,ollama,opencode,claude-code,workai-gui prompt='Ответь одним коротким предложением: ты работаешь.' max_total=110s ===
+[2026-10-19 15:27:44.683] [INFO] каскад: пробую pollinations ...
+[2026-10-19 15:27:49.582] [INFO] каскад: pollinations ОК (12 симв., 4898ms)

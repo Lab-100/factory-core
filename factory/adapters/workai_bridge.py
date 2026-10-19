@@ -34,6 +34,106 @@ import sys
 import time
 from pathlib import Path
 
+# --- защита от «кучи параллельных экземпляров» ---
+# Несколько задач фабрики могут вызвать мост одновременно; каждый вызов,
+# увидев «WorkAI не запущен», поднимал бы свой экземпляр — итог: десятки
+# окон и память забита. Ограничения:
+#   * запуск WorkAI — под мьютексом (единая очередь на холодный старт);
+#   * перед холодным стартом проверяем свободную память (ниже порога —
+#     ждём/отказываемся, минимум MIN_FREE_RAM_PCT % свободно);
+#   * максимум MAX_WORKAI_INSTANCES главных экземпляров (по маркерному
+#     файлу запуска), лишние параллельные вызовы ждут свободного слота.
+MIN_FREE_RAM_PCT = float(os.environ.get("WORKAI_MIN_FREE_RAM_PCT", "20"))
+MAX_WORKAI_INSTANCES = int(os.environ.get("WORKAI_MAX_INSTANCES", "2"))
+LAUNCH_LOCK_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "state", "workai_launch.lock")
+# окно, которое ещё ни разу не скрывалось (только что поднятое) — прячем
+# сразу, чтобы оно не выскакивало на передний план и не крало фокус
+_HIDE_DELAY_S = 0.0
+
+def _free_ram_pct() -> float:
+    """Доля свободной памяти (0..100). None — не определить (не Windows)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", wintypes.DWORD),
+                        ("dwMemoryLoad", wintypes.DWORD),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        ms = MEMORYSTATUSEX()
+        ms.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            return float("nan")
+        if not ms.ullTotalPhys:
+            return float("nan")
+        return ms.ullAvailPhys * 100.0 / ms.ullTotalPhys
+    except Exception:  # noqa: BLE001
+        return float("nan")
+
+
+def _wait_for_ram(prompt_repr: str, debug: bool) -> None:
+    """Дожидаемся, пока свободная память не станет ≥ MIN_FREE_RAM_PCT.
+
+    Параллельные задачи могут держать запущенный WorkAI; перед тем как
+    поднять ещё один — уступаем, пока ОС не освободит хотя бы порог,
+    либо пока не выйдет таймаут (тогда работаем как есть).
+    """
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        pct = _free_ram_pct()
+        if pct == pct:  # не NaN
+            if pct >= MIN_FREE_RAM_PCT:
+                return
+            if debug:
+                print(f"DBG память {pct:.0f}% свободно < {MIN_FREE_RAM_PCT:.0f}% — жду",
+                      file=sys.stderr)
+        time.sleep(3)
+
+
+def _acquire_launch_lock(debug: bool) -> bool:
+    """Атомарно захватить «право на холодный старт» (файл-мьютекс).
+
+    Несколько параллельных мостов видят «WorkAI не запущен» одновременно;
+    только один получает право запустить его. Остальные ждут, пока
+    захватчик поднимет окно (маркер), и переиспользуют его.
+    Возвращает True, если этот вызов стал ответственным за запуск.
+    """
+    try:
+        lock_dir = os.path.dirname(LAUNCH_LOCK_FILE)
+        os.makedirs(lock_dir, exist_ok=True)
+        fd = os.open(LAUNCH_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+        return True
+    except FileExistsError:
+        return False
+    except Exception:  # noqa: BLE001
+        return True  # не смогли проверить — пробуем запустить сами
+
+
+def _release_launch_lock() -> None:
+    try:
+        if os.path.exists(LAUNCH_LOCK_FILE):
+            os.unlink(LAUNCH_LOCK_FILE)
+    except OSError:
+        pass
+
+
+def _count_running_instances() -> int:
+    """Число главных экземпляров WorkAI (окон с заголовком)."""
+    try:
+        return len(_workai_pids())
+    except Exception:  # noqa: BLE001
+        return 0
+
 def _find_workai() -> tuple[str | None, str | None]:
     """Найти CLI-шим и exe WorkAI без хардкода путей.
 
@@ -372,27 +472,63 @@ def main() -> int:
 
     before = _workai_pids()
     if not before:
-        try:
-            if WORKAI_EXE:
-                subprocess.Popen([WORKAI_EXE],
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            # ждём, пока графическое окно WorkAI полностью поднимется —
-            # иначе `workai chat -` не успевает доставить промпт в сессию
-            ready = time.time() + 60
-            started_at = 0.0
-            while time.time() < ready:
-                if _workai_pids():
-                    if started_at == 0:
-                        started_at = time.time()
-                    # окно уже есть; ждём ещё ~6 секунд, чтобы Electron довёл
-                    # сессии/контейнер чата до готовности к приёму промпта
-                    if time.time() - started_at >= 6:
-                        break
-                time.sleep(1)
+        # Холодный старт: под единым мьютексом, с проверкой памяти и лимитом
+        # инстансов (см. блок констант вверху файла) — чтобы параллельные
+        # задачи не наоткрывали десятки окон WorkAI.
+        owner = _acquire_launch_lock(debug)
+        if not owner:
             if debug:
-                print("DBG WorkAI поднят:", bool(_workai_pids()), file=sys.stderr)
-        except Exception as exc:  # noqa: BLE001
-            print(f"WARN: не удалось поднять фоновый WorkAI: {exc}", file=sys.stderr)
+                print("DBG другой вызов уже поднимает WorkAI — жду готовности",
+                      file=sys.stderr)
+            # ждём, пока захватчик поднимет окно (максимум TIMEOUT_S)
+            deadline = time.time() + min(120, TIMEOUT_S)
+            while time.time() < deadline:
+                if _workai_pids():
+                    break
+                time.sleep(1)
+            before = _workai_pids()
+            if debug:
+                print("DBG после ожидания WorkAI:", bool(before), file=sys.stderr)
+        else:
+            # ответственный за запуск: проверяем память и число инстансов
+            _wait_for_ram(prompt[:60], debug)
+            n = _count_running_instances()
+            if n >= MAX_WORKAI_INSTANCES:
+                if debug:
+                    print(f"DBG уже запущено {n} >= {MAX_WORKAI_INSTANCES} — "
+                          f"не поднимаю новый, жду готовности", file=sys.stderr)
+                deadline = time.time() + min(120, TIMEOUT_S)
+                while time.time() < deadline and _count_running_instances() >= MAX_WORKAI_INSTANCES:
+                    time.sleep(2)
+                before = _workai_pids()
+        if debug:
+            print("DBG до запуска:", bool(before), file=sys.stderr)
+        if not before:
+            try:
+                if WORKAI_EXE:
+                    subprocess.Popen([WORKAI_EXE],
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                # ждём, пока графическое окно WorkAI полностью поднимется —
+                # иначе `workai chat -` не успевает доставить промпт в сессию
+                ready = time.time() + 60
+                started_at = 0.0
+                while time.time() < ready:
+                    if _workai_pids():
+                        if started_at == 0:
+                            started_at = time.time()
+                        # окно уже есть; ждём ещё ~6 секунд, чтобы Electron довёл
+                        # сессии/контейнер чата до готовности к приёму промпта
+                        if time.time() - started_at >= 6:
+                            break
+                    time.sleep(1)
+                if debug:
+                    print("DBG WorkAI поднят:", bool(_workai_pids()), file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                print(f"WARN: не удалось поднять фоновый WorkAI: {exc}", file=sys.stderr)
+        # скрываем окно сразу после подъёма, чтобы не крало фокус
+        _hide_all_workai_windows()
+        if owner:
+            _release_launch_lock()
     else:
         # окно уже открыто — даём ему секунду на стабилизацию после прошлого запроса
         time.sleep(1.5)

@@ -1615,7 +1615,7 @@ def _handler_class():
 
 def serve(host: str | None = None, port: int | None = None,
           open_browser: bool = False) -> int:
-    _, settings, _, _ = build_context()
+    root, settings, _, ledger = build_context()
     tr = make_translator(settings)
     host = host or str(settings.get("ui.web.host", "127.0.0.1"))
     port = port or int(settings.get("ui.web.port", 8787))

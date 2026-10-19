@@ -48,7 +48,9 @@ DEFAULT_SERVICES: dict[str, dict] = {
         "kind": "http",
         "url": "http://127.0.0.1:11434/api/tags",
         "owner": "factory",
-        "enabled": True,
+        # Локальные модели по умолчанию ОТКЛЮЧЕНЫ. Включить: настройка
+        # `[services.ollama] enabled = true` в settings.toml.
+        "enabled": False,
         "start": ["ollama", "serve"],
         "stop": ["taskkill", "/IM", "ollama.exe", "/F"],
         "tags": ["llm"],

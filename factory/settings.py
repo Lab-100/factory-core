@@ -105,9 +105,26 @@ class Settings:
         return str(self.get("ui.lang", DEFAULT_LANG))
 
 
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """Глубокое слияние: значения overlay перекрывают base вложенно."""
+    out = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def load(path: str | Path | None = None) -> Settings:
     if path is None:
         path = repo_root() / "config" / "settings.toml"
     path = Path(path)
     data = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    # Локальный слой поверх: machine-specific пути (персональные команды,
+    # каталоги этой машины) не коммитятся в репозиторий, а живут в
+    # state/config/settings.toml (state/ в .gitignore). Сливаете глубже.
+    overlay = path.parent.parent / "state" / "config" / "settings.toml"
+    if overlay.exists():
+        data = _deep_merge(data, tomllib.loads(overlay.read_text(encoding="utf-8")))
     return Settings(path, data)

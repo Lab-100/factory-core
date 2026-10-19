@@ -28,12 +28,51 @@ from __future__ import annotations
 import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
-WORKAI = r"C:\Program Files\WorkAI\bin\workai.cmd"
-WORKAI_EXE = r"C:\Program Files\WorkAI\WorkAI.exe"
+def _find_workai() -> tuple[str | None, str | None]:
+    """Найти CLI-шим и exe WorkAI без хардкода путей.
+
+    Порядок поиска:
+      1) переменные окружения WORKAI_CMD / WORKAI_EXE (явное указание);
+      2) `workai` в PATH (shutil.which);
+      3) стандартные каталоги установки Windows: %ProgramFiles%/WorkAI,
+         %LOCALAPPDATA%/Programs/WorkAI, %LOCALAPPDATA%/WorkAI.
+    Возвращает (cmd, exe); любой из компонентов может быть None.
+    """
+    cmd = os.environ.get("WORKAI_CMD") or ""
+    exe = os.environ.get("WORKAI_EXE") or ""
+    if not cmd:
+        found = shutil.which("workai")
+        if found:
+            cmd = found
+    if not cmd or not exe:
+        candidates = []
+        for base in (os.environ.get("ProgramFiles"),
+                     os.environ.get("ProgramFiles(x86)"),
+                     os.environ.get("LOCALAPPDATA")):
+            if base:
+                candidates.append(Path(base) / "WorkAI")
+                candidates.append(Path(base) / "Programs" / "WorkAI")
+        for root in candidates:
+            if not root.is_dir():
+                continue
+            if not cmd:
+                exe_candidate = root / "bin" / "workai.cmd"
+                if exe_candidate.is_file():
+                    cmd = str(exe_candidate)
+            if not exe:
+                exe_candidate = root / "WorkAI.exe"
+                if exe_candidate.is_file():
+                    exe = str(exe_candidate)
+    return (cmd or None, exe or None)
+
+
+WORKAI, WORKAI_EXE = _find_workai()
 WORKSPACE_STORAGE = os.path.join(
     os.environ.get("APPDATA", ""), "WorkAI", "User", "workspaceStorage"
 )

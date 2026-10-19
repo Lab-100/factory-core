@@ -346,6 +346,10 @@ def main() -> int:
     if not prompt:
         print("ERROR: пустой промпт (stdin пуст)", file=sys.stderr)
         return 1
+    if not WORKAI and not WORKAI_EXE:
+        print("ERROR: WorkAI не найден — задайте WORKAI_CMD/WORKAI_EXE "
+              "или установите WorkAI", file=sys.stderr)
+        return 2
     debug = os.environ.get("WORKAI_BRIDGE_DEBUG") == "1"
     if debug:
         print(f"DBG prompt[{len(prompt)}]={prompt[:80]!r}", file=sys.stderr)
@@ -353,8 +357,9 @@ def main() -> int:
     before = _workai_pids()
     if not before:
         try:
-            subprocess.Popen([WORKAI_EXE],
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if WORKAI_EXE:
+                subprocess.Popen([WORKAI_EXE],
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             # ждём, пока графическое окно WorkAI полностью поднимется —
             # иначе `workai chat -` не успевает доставить промпт в сессию
             ready = time.time() + 60

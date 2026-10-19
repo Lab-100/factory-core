@@ -176,7 +176,7 @@ WORKAI, WORKAI_EXE = _find_workai()
 WORKSPACE_STORAGE = os.path.join(
     os.environ.get("APPDATA", ""), "WorkAI", "User", "workspaceStorage"
 )
-TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "240"))
+TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "400"))
 POLL_S = 0.5
 LAUNCH_MARGIN_MS = 5000  # допуск на рассинхрон часов при сравнении timestamp
 

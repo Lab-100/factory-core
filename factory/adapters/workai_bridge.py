@@ -114,8 +114,10 @@ def _wait_for_ram(prompt_repr: str, debug: bool) -> bool:
 
     Условия (оба):
       * свободно ≥ MIN_FREE_RAM_PCT % от всей физической памяти;
-      * свободно ≥ WORKAI_APPETITE_MB + MIN_FREE_RAM_PCT % (запас на аппетит
-        нового экземпляра + на систему после старта).
+      * свободно ≥ WORKAI_APPETITE_MB + всего_RAM × MIN_FREE_RAM_PCT/100 —
+        аппетит нового экземпляра + резерв MIN_FREE_RAM_PCT % на систему
+        ПОСЛЕ старта (это и есть «оценка запуска»: если после запуска
+        останется меньше порога — не запускаем).
     Ждём до 120 с; если так и не хватает — возвращаем False (не поднимать).
     """
     def _enough() -> bool:
@@ -123,10 +125,10 @@ def _wait_for_ram(prompt_repr: str, debug: bool) -> bool:
         if free != free:
             return True  # не можем измерить — не мешаем
         pct = _free_ram_pct()
-        if pct != pct:
+        if pct != pct or pct <= 0:
             return True
-        return pct >= MIN_FREE_RAM_PCT and \
-            free >= WORKAI_APPETITE_MB + MIN_FREE_RAM_PCT
+        total = free / (pct / 100.0)
+        return free >= WORKAI_APPETITE_MB + total * MIN_FREE_RAM_PCT / 100.0
 
     if _enough():
         return True
@@ -136,9 +138,9 @@ def _wait_for_ram(prompt_repr: str, debug: bool) -> bool:
             return True
         if debug:
             free = _free_ram_mb()
-            print(f"DBG памяти мало (свободно {free:.0f} МБ, нужно ≥ "
-                  f"{WORKAI_APPETITE_MB:.0f}+{MIN_FREE_RAM_PCT:.0f}%) — жду",
-                  file=sys.stderr)
+            print(f"DBG памяти мало (свободно {free:.0f} МБ — нужно ≥ "
+                  f"{WORKAI_APPETITE_MB:.0f} МБ + {MIN_FREE_RAM_PCT:.0f}% "
+                  f"резерва) — жду", file=sys.stderr)
         time.sleep(3)
     if debug:
         print("DBG память так и не освободилась — запуск отложен",

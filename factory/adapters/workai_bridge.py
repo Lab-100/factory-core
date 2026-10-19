@@ -195,6 +195,34 @@ def _workai_orphans() -> set[int]:
         return set()
 
 
+def _minimize_all_workai() -> None:
+    """Свернуть все видимые окна WorkAI (служебные не должны мешать)."""
+    try:
+        import ctypes
+        import psutil
+        user32 = ctypes.windll.user32
+        WINDOW_ENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        cands: list[int] = []
+
+        @WINDOW_ENUM
+        def _cb(hwnd, lparam):
+            cands.append(hwnd)
+            return True
+
+        user32.EnumWindows(_cb, 0)
+        for h in cands:
+            pid2 = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(pid2))
+            try:
+                p = psutil.Process(pid2.value)
+                if p.name().lower() == "workai.exe" and user32.IsWindowVisible(h):
+                    user32.ShowWindow(h, 6)  # SW_MINIMIZE
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _kill_tree(pid: int) -> None:
     """Принудительно завершить процесс и его потомков."""
     try:
@@ -292,12 +320,22 @@ def main() -> int:
         print(f"DBG попыток {attempts}, файлов сессий {len(iter_session_files())}",
               file=sys.stderr)
 
-    # Стратегия: НЕ закрываем WorkAI, поднятый мостом (даже холодный старт).
-    # WorkAI остаётся работать как служебное окно — тогда каждый следующий
-    # запрос доставляется в уже готовое окно стабильно и быстро. Закрытие окна
-    # на каждом ответе ведёт к холодным стартам и потерянным промптам.
-    if debug:
-        print("DBG WorkAI оставлен открытым для последующих запросов", file=sys.stderr)
+    # Стратегия:
+    #  - если WorkAI уже был открыт пользователем (before непусто) — не трогаем
+    #    его вовсе: следующие запросы будут тёплыми и стабильными;
+    #  - если WorkAI поднял сам мост (холодный старт) — закрываем поднятые
+    #    окна, чтобы они не копились (проблема «ворки не закрываются»).
+    if not before:
+        for pid2 in _workai_pids():
+            if pid2 not in before:
+                if debug:
+                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
+                          file=sys.stderr)
+                _kill_tree(pid2)
+    else:
+        _minimize_all_workai()
+        if debug:
+            print("DBG WorkAI оставлен открытым (был до моста)", file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

@@ -79,6 +79,25 @@ class WatchdogTest(unittest.TestCase):
         ledger = Ledger(state / "ledger.jsonl")
         self.assertTrue(any(e.get("kind") == "watchdog" for e in ledger.tail(10)))
 
+    def test_idle_workai_closed_only_after_marker_old(self) -> None:
+        """Маркер «мостового» WorkAI: пока свежий — окно не трогаем,
+        после истечения порога и при отсутствии активных задач — закрываем."""
+        state = self.root / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        marker = state / "workai_bridge.txt"
+        # свежий маркер — WorkAI не трогаем
+        marker.write_text(str(datetime.now().timestamp()), encoding="utf-8")
+        dog = Watchdog(self.settings, root=self.root)
+        result = dog._collect_idle_workai()
+        self.assertEqual(result, [])
+        self.assertTrue(marker.exists(), "свежий маркер не удаляем")
+        # старый маркер, задач нет — закрываем и снимаем маркер
+        marker.write_text(str(datetime.now().timestamp() - 1000), encoding="utf-8")
+        self.settings.set("watchdog.workai_idle_s", 300)
+        result = dog._collect_idle_workai()
+        # taskkill может вернуть ошибку (WorkAI не запущен) — но маркер снимаем
+        self.assertFalse(marker.exists(), "маркер удалён после простоя")
+
 
 if __name__ == "__main__":
     unittest.main()

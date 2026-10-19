@@ -78,6 +78,13 @@ class Watchdog:
         healed = self.heal_jobs()
         actions += [{"action": "job-timeout", "job": job_id} for job_id in healed]
 
+        # 4) фоновая уборка WorkAI, поднятого мостом: живёт только пока идёт
+        #    серия запросов. Если последний запрос был давно (порог
+        #    watchdog.workai_idle_s, по умолчанию 300 с) и активных задач нет —
+        #    окно закрывается, маркер снимается.
+        actor_wrk = self._collect_idle_workai()
+        actions.extend(actor_wrk)
+
         result = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "health": health,
@@ -89,6 +96,43 @@ class Watchdog:
     def heal_jobs(self) -> list[str]:
         timeout = float(self.settings.get("watchdog.stuck_after_s", 600))
         return JobManager(self.root).heal_stuck(timeout)
+
+    def _collect_idle_workai(self) -> list[dict]:
+        """Закрыть WorkAI, поднятый мостом external_agent->WorkAI, если он
+        простаивает дольше порога и нет активных задач.
+
+        Мост-экземпляр оставляет окно после ответа (серия запросов идёт на
+        одном окне) и пишет маркер в ``state/workai_bridge.txt``. Watchdog
+        периодически проверяет: активных задач нет и с маркера прошло больше
+        ``watchdog.workai_idle_s`` секунд — окно закрывается.
+        """
+        marker = self.root / "state" / "workai_bridge.txt"
+        if not marker.exists():
+            return []
+        try:
+            last = float(marker.read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            return []
+        idle = float(self.settings.get("watchdog.workai_idle_s", 300))
+        if time.time() - last < idle:
+            return []
+        # Есть ли активные задачи (running/awaiting) — если да, ещё работаем.
+        jobs = JobManager(self.root).list()
+        if any(j.get("status") in ("running", "awaiting-approval") for j in jobs):
+            return []
+        # WorkAI, вероятно, поднят мостом — закрываем.
+        try:
+            import subprocess
+            subprocess.run(["taskkill", "/IM", "WorkAI.exe", "/T", "/F"],
+                           capture_output=True, timeout=15)
+        except Exception:  # noqa: BLE001
+            return []
+        try:
+            marker.unlink()
+        except OSError:
+            pass
+        return [{"action": "workai-idle-close",
+                 "reason": f"простой > {int(idle)} с, задач нет"}]
 
     def _record(self, result: dict) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)

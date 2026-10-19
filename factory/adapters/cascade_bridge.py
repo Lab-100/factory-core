@@ -145,8 +145,16 @@ def try_claude_code(prompt: str) -> tuple[bool, str, str]:
 
 def try_workai_gui(prompt: str) -> tuple[bool, str, str]:
     # Последний вариант: GUI-окно WorkAI (как старый workai_bridge).
-    bridge = os.environ.get("WORKAI_BRIDGE",
-                            r"C:\Program Files\WorkAI\bin\workai.cmd")
+    # Пути — динамически (без хардкода): из workai_bridge._find_workai
+    # (env WORKAI_CMD/WORKAI_EXE, PATH, стандартные каталоги Windows).
+    try:
+        from .workai_bridge import _find_workai
+        cmd, _exe = _find_workai()
+    except Exception:  # noqa: BLE001
+        cmd, _exe = None, None
+    bridge = os.environ.get("WORKAI_BRIDGE", "") or (cmd or "")
+    if not bridge:
+        return False, "", "workai-gui: WorkAI не найден"
     try:
         proc = subprocess.run(
             [bridge, "chat", prompt, "-m", "ask", "-r"],

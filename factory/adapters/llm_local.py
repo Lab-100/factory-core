@@ -32,7 +32,9 @@ class LocalLlmAdapter(Adapter):
         return str(self.settings.get("adapters.llm_local_model", "hermes3:3b") or "hermes3:3b")
 
     def available(self) -> bool:
-        return bool(self.settings.get("adapters.llm_local_enabled", True))
+        # Локальные модели (Ollama) по умолчанию ОТКЛЮЧЕНЫ — включаются
+        # переключателем `adapters.llm_local_enabled = true` в settings.toml.
+        return bool(self.settings.get("adapters.llm_local_enabled", False))
 
     def models(self) -> list[str]:
         """Имена моделей, установленных в Ollama (пусто, если сервер недоступен)."""

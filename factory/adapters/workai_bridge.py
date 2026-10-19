@@ -37,7 +37,7 @@ WORKAI_EXE = r"C:\Program Files\WorkAI\WorkAI.exe"
 WORKSPACE_STORAGE = os.path.join(
     os.environ.get("APPDATA", ""), "WorkAI", "User", "workspaceStorage"
 )
-TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "60"))
+TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "150"))
 POLL_S = 0.5
 LAUNCH_MARGIN_MS = 5000  # допуск на рассинхрон часов при сравнении timestamp
 
@@ -224,20 +224,25 @@ def _minimize_all_workai() -> None:
 
 
 def _kill_tree(pid: int) -> None:
-    """Принудительно завершить процесс и его потомков."""
+    """Принудительно завершить процесс и всё его дерево (taskkill /T /F).
+
+    Проверено: psutil.children(recursive=True) иногда не добивает дочерние
+    процессы Electron (остаются окна), а `taskkill /PID <pid> /T /F` закрывает
+    дерево целиком.
+    """
     try:
-        import psutil
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
-            try:
-                child.kill()
-            except Exception:  # noqa: BLE001
-                pass
-        parent.kill()
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                       capture_output=True, timeout=15)
     except Exception:  # noqa: BLE001
         try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                           capture_output=True, timeout=10)
+            import psutil
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):
+                try:
+                    child.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            parent.kill()
         except Exception:  # noqa: BLE001
             pass
 

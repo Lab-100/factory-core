@@ -109,8 +109,40 @@ def api(method: str, url: str, token: str, data=None, content_type: str | None =
         return exc.code, parsed
 
 
+def _source_root(root: Path) -> Path:
+    """Каталог исходников, из которого собирается factory.exe.
+
+    В исходниках root — он сам: здесь и run.py, и config/settings.toml.
+    В установленной (frozen) копии repo_root() возвращает каталог установки,
+    где нет run.py — ищем исходники рядом: сначала в том же месте, затем
+    выше/ниже по дереву от корня. Без этого `factory release` из установки
+    падал на «Script file 'run.py' does not exist».
+    """
+    def is_source(path: Path) -> bool:
+        return (path / "run.py").is_file() and (path / "config" / "settings.toml").is_file()
+
+    if is_source(root):
+        return root
+    # ищем вверх от root (общий случай: установка в подпапке репозитория)
+    cur = root
+    while True:
+        parent = cur.parent
+        if parent == cur:
+            break
+        if is_source(parent):
+            return parent
+        cur = parent
+    # ищем рядом: директории внутри корня установки
+    if root.is_dir():
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and is_source(child):
+                return child
+    return root
+
+
 def build_exe(root: Path) -> None:
     """Сборка dist/factory.exe (PyInstaller) — сам ставит, если нет."""
+    src = _source_root(root)
     python = resolve_python()
     try:
         import PyInstaller  # noqa: F401
@@ -124,8 +156,8 @@ def build_exe(root: Path) -> None:
            "--add-data", f"docs{os.pathsep}docs",
            "--add-data", f"project.json{os.pathsep}.",
            "run.py"]
-    subprocess.run(cmd, cwd=str(root), check=True, timeout=900)
-    exe = root / "dist" / "factory.exe"
+    subprocess.run(cmd, cwd=str(src), check=True, timeout=900)
+    exe = src / "dist" / "factory.exe"
     if not exe.exists():
         raise RuntimeError("не создан dist/factory.exe")
 
@@ -340,31 +372,32 @@ def release(token: str, tag: str | None = None, draft: bool = False, skip_build:
             progress(message)
 
     root = repo_root()
+    src = _source_root(root)
     tr = translator or make_translator(_load_settings())
     tag = tag or f"v{version()}"
 
-    # 1) сборка + упаковка Windows-версии
+    # 1) сборка + упаковка Windows-версии (артефакты — в каталоге исходников)
     if not skip_build:
         log(tr("rel.step1"))
-        build_exe(root)
+        build_exe(src)
         log(tr("rel.step2"))
-    if not (root / "dist" / "factory.exe").exists():
+    if not (src / "dist" / "factory.exe").exists():
         log(tr("rel.step1"))
-        build_exe(root)
+        build_exe(src)
     if not skip_build:
-        make_installer(root, log, tr)
-    make_zip(root)
-    zip_path = root / "dist" / "factory-core-win.zip"
+        make_installer(src, log, tr)
+    make_zip(src)
+    zip_path = src / "dist" / "factory-core-win.zip"
     log(tr("rel.archive", path=zip_path, size=zip_path.stat().st_size // 1024))
 
-    # 2) репозиторий (создаём, если нет) + ветка main + пуш
+    # 2) репозиторий (создаём, если нет) + ветка main + пуш (в исходниках)
     if _ensure_repo(repo, token, log):
         log(tr("rel.repo_created", repo=repo))
-    _git(root, "branch", "-M", "main")
+    _git(src, "branch", "-M", "main")
     push_url = f"https://x-access-token:{token}@github.com/{repo}.git"
 
     # 3) пуш + тег: сначала git-протокол, при недоступности — Git Data API
-    _push_and_tag(token, repo, root, tag, push_url, log, tr)
+    _push_and_tag(token, repo, src, tag, push_url, log, tr)
     log(tr("rel.tag", tag=tag))
 
     # 4) релиз (идемпотентно)
@@ -384,7 +417,7 @@ def release(token: str, tag: str | None = None, draft: bool = False, skip_build:
 
     # 5) ассеты (перезапись при повторе): архив и, если собран, установщик
     assets: list[Path] = [zip_path]
-    setup = root / "dist" / "factory-setup.exe"
+    setup = src / "dist" / "factory-setup.exe"
     if setup.exists():
         assets.append(setup)
     uploaded = [_upload_asset(token, repo, release_data, path, log, tr) for path in assets]

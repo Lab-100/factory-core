@@ -6,7 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from factory.release import find_iscc, make_zip
+from factory.release import _source_root, find_iscc, make_zip
 
 
 class MakeZipTest(unittest.TestCase):
@@ -76,6 +76,35 @@ class FindIsccTest(unittest.TestCase):
     def test_returns_path_or_none(self) -> None:
         found = find_iscc()
         self.assertTrue(found is None or Path(found).name.lower() == "iscc.exe")
+
+
+class SourceRootTest(unittest.TestCase):
+    def _source(self) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "config").mkdir()
+        (root / "config" / "settings.toml").write_text("", encoding="utf-8")
+        (root / "run.py").write_text("# run", encoding="utf-8")
+        return root
+
+    def test_returns_itself_when_source(self) -> None:
+        src = self._source()
+        self.assertEqual(_source_root(src), src)
+
+    def test_finds_source_in_parent_when_root_is_install_dir(self) -> None:
+        src = self._source()
+        install = src / "AppData" / "Local" / "FactoryLab100"
+        install.mkdir(parents=True)
+        self.assertEqual(_source_root(install), src)
+
+    def test_returns_root_when_no_source_nearby(self) -> None:
+        src = self._source()
+        orphan = src.parent / "совсем-другая-папка"
+        orphan.mkdir(parents=True, exist_ok=True)
+        # исходников рядом нет — возвращаем сам корень (сборка честно
+        # упадёт с понятной ошибкой, а не соберёт из чужого каталога)
+        self.assertEqual(_source_root(orphan), orphan)
 
 
 if __name__ == "__main__":

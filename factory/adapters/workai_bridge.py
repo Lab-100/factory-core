@@ -253,7 +253,17 @@ def main() -> int:
         try:
             subprocess.Popen([WORKAI_EXE],
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            time.sleep(4)
+            # ждём, пока графическое окно WorkAI полностью поднимется —
+            # иначе `workai chat -` не успевает доставить промпт в сессию
+            ready = time.time() + 40
+            while time.time() < ready:
+                if _workai_pids():
+                    # окно появилось; даём Electron ещё довести сессии до готовности
+                    time.sleep(3)
+                    break
+                time.sleep(1)
+            if debug:
+                print("DBG WorkAI поднят:", bool(_workai_pids()), file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
             print(f"WARN: не удалось поднять фоновый WorkAI: {exc}", file=sys.stderr)
     launch_ms = int(time.time() * 1000)
@@ -282,17 +292,12 @@ def main() -> int:
         print(f"DBG попыток {attempts}, файлов сессий {len(iter_session_files())}",
               file=sys.stderr)
 
-    if not before:
-        for pid2 in _workai_pids():
-            if pid2 not in before:
-                if debug:
-                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
-                          file=sys.stderr)
-                _kill_tree(pid2)
-    for pid2 in _workai_orphans():
-        if debug:
-            print(f"DBG закрываю осиротевшее окно WorkAI pid={pid2}", file=sys.stderr)
-        _kill_tree(pid2)
+    # Стратегия: НЕ закрываем WorkAI, поднятый мостом (даже холодный старт).
+    # WorkAI остаётся работать как служебное окно — тогда каждый следующий
+    # запрос доставляется в уже готовое окно стабильно и быстро. Закрытие окна
+    # на каждом ответе ведёт к холодным стартам и потерянным промптам.
+    if debug:
+        print("DBG WorkAI оставлен открытым для последующих запросов", file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

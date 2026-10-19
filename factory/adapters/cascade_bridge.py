@@ -31,7 +31,9 @@ from pathlib import Path
 
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
-DEFAULT_ORDER = "pollinations,ollama,opencode,claude-code,workai-gui"
+# Локальные модели (Ollama) по умолчанию исключены из каскада. Включить
+# руками можно env-переменной CASCADE_ORDER, добавив в неё "ollama".
+DEFAULT_ORDER = "pollinations,opencode,claude-code,workai-gui"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))

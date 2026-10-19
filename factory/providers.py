@@ -70,7 +70,7 @@ PROVIDERS: dict[str, dict] = {
         "run": ["bridge"],
     },
     "cascade": {
-        "title": "Cascade (headless-каскад: Ollama → opencode → pollinations → claude → workai)",
+        "title": "Cascade (headless-каскад: pollinations → opencode → claude → workai)",
         "commands": [],
         "paths": [],
         # headless-каскад: stdin -> stdout (без окон, локальный, бесплатный).

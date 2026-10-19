@@ -165,7 +165,7 @@ kind = "http"
 url = "http://127.0.0.1:8120/api/health"
 owner = "factory"
 enabled = true
-start = ["python", "C:/Users/TEKK/Documents/MultiTool/HomeChats/Chat-30/browser-chats/python/webchat_service.py"]
+start = ["python", "browser-chats/webchat_service.py"]
 stop = []
 tags = ["chat", "browser"]
 [providers]
@@ -182,7 +182,7 @@ auto_route = true           # true вЂ” РЅР°РїСЂР°РІР»СЏС‚
 
 [providers.claude-code]
 enabled = true
-command = "C:\\Users\\TEKK\\.devstation\\tools\\agent-bridges\\agent-rotate.cmd"
+command = ""
 
 [providers.opencode]
 enabled = true
@@ -204,8 +204,8 @@ enabled = false
 
 [providers.workai]
 enabled = false
-command = "C:\\Program Files\\WorkAI\\bin\\workai.cmd"
-bridge = "C:\\Users\\TEKK\\Documents\\Codex\\2026-09-01\\new-chat\\workai_bridge.py"
+command = ""
+bridge = ""
 
 [providers.cascade]
 # Headless-каскад: Ollama -> opencode -> pollinations -> claude-code -> workai-gui.
@@ -218,7 +218,7 @@ enabled = true
 # (СЃРј. factory/adapters/cline_bridge.py): РѕРЅ С‡РёС‚Р°РµС‚ stdin Рё РІС‹Р·С‹РІР°РµС‚ Cline,
 # РІРѕР·РІСЂР°С‰Р°СЏ РѕС‚РІРµС‚ РІ stdout. РњРѕСЃС‚ РјРѕР¶РЅРѕ РїРµСЂРµРѕРїСЂРµРґРµР»РёС‚СЊ С‡РµСЂРµР· providers.cline.bridge.
 enabled = true
-command = "C:\\Users\\TEKK\\AppData\\Local\\Cline\\cline-cli.exe"
+command = ""
 model = "cline-free/mimo-v2.6-flash"
 models = [
   "cline|cline-free/mimo-v2.6-flash",
@@ -236,7 +236,7 @@ models = [
 
 [providers.pollinations]
 enabled = true
-command = "C:\\Users\\TEKK\\.devstation\\tools\\agent-bridges\\pollinations-bridge.cmd"
+command = ""
 
 [routing]
 # РќР°РїСЂР°РІР»РµРЅРёРµ РєРѕРјРїРµС‚РµРЅС†РёР№ РЅР° Р°РґР°РїС‚РµСЂ (РїРµСЂРµРєСЂС‹РІР°РµС‚ РІСЃС‚СЂРѕРµРЅРЅСѓСЋ РјР°СЂС€СЂСѓС‚РёР·Р°С†РёСЋ).

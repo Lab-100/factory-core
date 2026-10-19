@@ -361,31 +361,26 @@ def main() -> int:
     #  - если WorkAI уже был открыт ПОЛЬЗОВАТЕЛЕМ до моста (before) — не
     #    трогаем его вовсе (это окно человека, не моста);
     #  - если WorkAI поднял сам мост (холодный старт) — после ответа (или
-    #    таймаута) ОБЯЗАТЕЛЬНО закрываем поднятые окна, чтобы они не висели,
-    #    когда никто не спрашивает.
-    # Стратегия: один WorkAI на серию запросов.
-    #  - если WorkAI уже был открыт ПОЛЬЗОВАТЕЛЕМ до моста (before) — не
-    #    трогаем его вовсе (это окно человека);
-    #  - если WorkAI поднял сам мост (холодный старт) — НЕ закрываем сразу:
-    #    окно переиспользуется следующими запросами (серия из 100 вопросов
-    #    идёт на одном экземпляре). Помечаем его «мостовым» маркером, чтобы
-    #    фоновый уборщик фабрики закрыл его после простоя.
+    #    таймаута) ОБЯЗАТЕЛЬНО закрываем поднятые окна целиком, чтобы они не
+    #    висели, когда никто не спрашивает.
+    # Это самый надёжный режим: серия вопросов не переиспользует окно (workai
+    # GUI не доставляет повторные промпты в уже открытое окно), поэтому
+    # каждый вопрос поднимает свежий экземпляр, отвечает и закрывается.
     if not before:
-        try:
-            marker = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "..", "..", "state", "workai_bridge.txt")
-            marker = os.path.abspath(marker)
-            with open(marker, "w", encoding="utf-8") as fh:
-                fh.write(str(time.time()))
-        except Exception:  # noqa: BLE001
-            pass
+        for pid2 in _workai_pids():
+            if pid2 not in before:
+                if debug:
+                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
+                          file=sys.stderr)
+                _kill_tree(pid2)
         if debug:
-            print("DBG WorkAI поднят мостом — отмечен для фоновой уборки",
+            print("DBG WorkAI закрыт мостом (вызвали-ответили-закрылись)",
                   file=sys.stderr)
-    _minimize_all_workai()
-    if debug:
-        print("DBG WorkAI свёрнут (переиспользуется следующими запросами)",
-              file=sys.stderr)
+    else:
+        _minimize_all_workai()
+        if debug:
+            print("DBG WorkAI пользователя не трогаю (свёрнут обратно)",
+                  file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

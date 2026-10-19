@@ -352,17 +352,27 @@ def main() -> int:
         print(f"DBG попыток {attempts}, файлов сессий {len(iter_session_files())}",
               file=sys.stderr)
 
-    # Стратегия:
-    #  - WorkAI держим открытым всегда (одно служебное свёрнутое окно) —
-    #    тогда каждый запрос тёплый и доставляется стабильно («вопрос не
-    #    всегда доходит» исчезает);
-    #  - окно сворачиваем, а не закрываем (закрытие ведёт к холодным стартам
-    #    и потерянным промптам); процессов WorkAI при этом не копится: окно
-    #    одно.
-    _minimize_all_workai()
-    if debug:
-        print("DBG WorkAI оставлен открытым (свёрнут) как служебное окно",
-              file=sys.stderr)
+    # Стратегия: вызвали — ответила — закрылась.
+    #  - если WorkAI уже был открыт ПОЛЬЗОВАТЕЛЕМ до моста (before) — не
+    #    трогаем его вовсе (это окно человека, не моста);
+    #  - если WorkAI поднял сам мост (холодный старт) — после ответа (или
+    #    таймаута) ОБЯЗАТЕЛЬНО закрываем поднятые окна, чтобы они не висели,
+    #    когда никто не спрашивает.
+    if not before:
+        for pid2 in _workai_pids():
+            if pid2 not in before:
+                if debug:
+                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
+                          file=sys.stderr)
+                _kill_tree(pid2)
+        if debug:
+            print("DBG WorkAI закрыт мостом (вызвали-ответили-закрылись)",
+                  file=sys.stderr)
+    else:
+        _minimize_all_workai()
+        if debug:
+            print("DBG WorkAI пользователя не трогаю (свёрнут обратно)",
+                  file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

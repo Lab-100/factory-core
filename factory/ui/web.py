@@ -1622,55 +1622,6 @@ def serve(host: str | None = None, port: int | None = None,
     server = ThreadingHTTPServer((host, port), _handler_class())
     print(tr("web.serving", host=host, port=port))
     url = f"http://{host}:{port}/"
-    # Автоподъём WorkAI перед стартом дашборда: чат обращается к workai через
-    # мост external_agent->WorkAI, который надёжно доставляет промпт только в
-    # уже открытое окно. Поднимаем окно заранее (свёрнутое) и держим его —
-    # тогда первый же вопрос из чата дойдёт без холодного старта.
-    if settings.get("providers.workai.enabled", True):
-        try:
-            import subprocess
-            import ctypes
-            WAI_EXE = r"C:\Program Files\WorkAI\WorkAI.exe"
-            alive = any(
-                str(getattr(p, "name", "") or "").lower() == "workai.exe"
-                for p in _windows_procs()
-            )
-            if not alive:
-                subprocess.Popen([WAI_EXE],
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                def _warm():
-                    import time
-                    time.sleep(20)
-                    try:
-                        user32 = ctypes.windll.user32
-                        WIN32 = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-                        import psutil
-                        for _ in range(4):
-                            cands: list[int] = []
-                            @WIN32
-                            def _cb(h, l):
-                                cands.append(h)
-                                return True
-                            user32.EnumWindows(_cb, 0)
-                            minimized = False
-                            for h in cands:
-                                pid2 = ctypes.c_ulong()
-                                user32.GetWindowThreadProcessId(h, ctypes.byref(pid2))
-                                try:
-                                    p = psutil.Process(pid2.value)
-                                    if p.name().lower() == "workai.exe" and user32.IsWindowVisible(h):
-                                        user32.ShowWindow(h, 6)  # SW_MINIMIZE
-                                        minimized = True
-                                except Exception:
-                                    continue
-                            if minimized:
-                                break
-                            time.sleep(3)
-                    except Exception:
-                        pass
-                threading.Thread(target=_warm, daemon=True).start()
-        except Exception:  # noqa: BLE001 — автоподъём некритичен
-            pass
     try:
         from ..single import open_dashboard, record_instance
 
@@ -1692,12 +1643,3 @@ def serve(host: str | None = None, port: int | None = None,
     finally:
         server.server_close()
     return 0
-
-
-def _windows_procs() -> list:
-    """Список процессов (для автоподъёма WorkAI)."""
-    try:
-        import psutil
-        return list(psutil.process_iter(["pid", "name"]))
-    except Exception:  # noqa: BLE001
-        return []

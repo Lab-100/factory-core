@@ -354,11 +354,14 @@ class ChatTabTest(unittest.TestCase):
 
     def test_chat_send_goes_directly_to_workai_without_synthesis(self) -> None:
         """Запрос из чата идёт напрямую в WorkAI одним шагом answer
-        (provider + synthesize:false + capabilities:['answer']),
-        минуя code-шаг и хрупкий синтез по всем провайдерам."""
+        (provider + synthesize:false + capabilities:['answer'] + timeout_s 240
+        для холодного старта WorkAI), минуя code-шаг и хрупкий синтез
+        по всем провайдерам."""
         text = page()
         self.assertIn("capabilities:['answer']", text)
-        self.assertIn("constraints:{synthesize:false},inputs:{provider:'workai'}", text)
+        self.assertIn("synthesize:false", text)
+        self.assertIn("timeout_s:240", text)
+        self.assertIn("provider:'workai'", text)
 
 
 if __name__ == "__main__":

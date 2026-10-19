@@ -39,11 +39,13 @@ from pathlib import Path
 # увидев «WorkAI не запущен», поднимал бы свой экземпляр — итог: десятки
 # окон и память забита. Ограничения:
 #   * запуск WorkAI — под мьютексом (единая очередь на холодный старт);
-#   * перед холодным стартом проверяем свободную память (ниже порога —
-#     ждём/отказываемся, минимум MIN_FREE_RAM_PCT % свободно);
+#   * перед холодным стартом проверяем свободную память: должен оставаться
+#     запас минимум MIN_FREE_RAM_PCT % И плюс аппетит нового WorkAI
+#     (~3 ГБ в среднем), чтобы после старта система не встала;
 #   * максимум MAX_WORKAI_INSTANCES главных экземпляров (по маркерному
 #     файлу запуска), лишние параллельные вызовы ждут свободного слота.
-MIN_FREE_RAM_PCT = float(os.environ.get("WORKAI_MIN_FREE_RAM_PCT", "20"))
+MIN_FREE_RAM_PCT = float(os.environ.get("WORKAI_MIN_FREE_RAM_PCT", "35"))
+WORKAI_APPETITE_MB = float(os.environ.get("WORKAI_APPETITE_MB", "3200"))
 MAX_WORKAI_INSTANCES = int(os.environ.get("WORKAI_MAX_INSTANCES", "2"))
 LAUNCH_LOCK_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -52,10 +54,38 @@ LAUNCH_LOCK_FILE = os.path.join(
 # сразу, чтобы оно не выскакивало на передний план и не крало фокус
 _HIDE_DELAY_S = 0.0
 
+def _free_ram_mb() -> float:
+    """Свободная физическая память, МБ (NaN — не определить)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", wintypes.DWORD),
+                        ("dwMemoryLoad", wintypes.DWORD),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        ms = MEMORYSTATUSEX()
+        ms.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            return float("nan")
+        return ms.ullAvailPhys / (1024.0 * 1024.0)
+    except Exception:  # noqa: BLE001
+        return float("nan")
+
+
 def _free_ram_pct() -> float:
     """Доля свободной памяти (0..100). None — не определить (не Windows)."""
     try:
-        import ctypes
+        free = _free_ram_mb()
+        if free != free:
+            return float("nan")
+        ctypes = __import__("ctypes")
         from ctypes import wintypes
         kernel32 = ctypes.windll.kernel32
         class MEMORYSTATUSEX(ctypes.Structure):
@@ -80,30 +110,39 @@ def _free_ram_pct() -> float:
 
 
 def _wait_for_ram(prompt_repr: str, debug: bool) -> bool:
-    """Дождаться, пока свободная память станет не ниже MIN_FREE_RAM_PCT.
+    """Дождаться, пока свободной памяти хватит на запуск WorkAI.
 
-    Параллельные задачи могут держать запущенный WorkAI; перед тем как
-    поднять ЕЩЁ один — уступаем, пока ОС не освободит хотя бы порог.
-    Возвращает True, если запуск разрешён; False — память так и не
-    освободилась, запуск лучше отложить/отказать (не забивать систему).
+    Условия (оба):
+      * свободно ≥ MIN_FREE_RAM_PCT % от всей физической памяти;
+      * свободно ≥ WORKAI_APPETITE_MB + MIN_FREE_RAM_PCT % (запас на аппетит
+        нового экземпляра + на систему после старта).
+    Ждём до 120 с; если так и не хватает — возвращаем False (не поднимать).
     """
-    if _free_ram_pct() == _free_ram_pct():  # не NaN
-        if _free_ram_pct() >= MIN_FREE_RAM_PCT:
+    def _enough() -> bool:
+        free = _free_ram_mb()
+        if free != free:
+            return True  # не можем измерить — не мешаем
+        pct = _free_ram_pct()
+        if pct != pct:
             return True
+        return pct >= MIN_FREE_RAM_PCT and \
+            free >= WORKAI_APPETITE_MB + MIN_FREE_RAM_PCT
+
+    if _enough():
+        return True
     deadline = time.time() + 120
     while time.time() < deadline:
-        pct = _free_ram_pct()
-        if pct == pct:  # не NaN
-            if pct >= MIN_FREE_RAM_PCT:
-                return True
-            if debug:
-                print(f"DBG память {pct:.0f}% свободно < {MIN_FREE_RAM_PCT:.0f}% — жду",
-                      file=sys.stderr)
+        if _enough():
+            return True
+        if debug:
+            free = _free_ram_mb()
+            print(f"DBG памяти мало (свободно {free:.0f} МБ, нужно ≥ "
+                  f"{WORKAI_APPETITE_MB:.0f}+{MIN_FREE_RAM_PCT:.0f}%) — жду",
+                  file=sys.stderr)
         time.sleep(3)
-    final = _free_ram_pct()
     if debug:
-        print(f"DBG память так и не освободилась ({final:.0f}% свободно) — "
-              f"запуск отложен", file=sys.stderr)
+        print("DBG память так и не освободилась — запуск отложен",
+              file=sys.stderr)
     return False
 
 

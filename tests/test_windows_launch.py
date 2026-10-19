@@ -62,9 +62,9 @@ class ShortcutTest(unittest.TestCase):
             self.assertEqual(command.count("Start-Process"), 1)
 
 
-def test_program_group_is_explicit(self) -> None:
+def test_program_group_is_explicit() -> None:
         # иначе ярлыки при обновлении уезжают в группу «(Default)»
-        self.assertIn("DefaultGroupName={#AppName}", ISS)
+        assert "DefaultGroupName={#AppName}" in ISS
 
 
 class MonitorTest(unittest.TestCase):

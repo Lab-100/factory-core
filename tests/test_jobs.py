@@ -188,9 +188,10 @@ class JobManagerTest(unittest.TestCase):
                      if m["role"] == "user" and m["text"] == "мой вопрос"]
         self.assertEqual(len(user_msgs), 1, "вопрос продублирован")
 
-    def test_new_bridge_has_stdin_and_orphan_cleanup(self) -> None:
+    def test_new_bridge_has_stdin_and_cold_start_support(self) -> None:
         """Мост external_agent->WorkAI: нативный stdin-режим (надёжная
-        доставка вопроса) и распознавание осиротевших окон WorkAI."""
+        доставка вопроса) и управление окнами (закрытие своих при холодном
+        старте, сворачивание чужих)."""
         import importlib.util
         from pathlib import Path
         bridge_path = (Path(__file__).resolve().parent.parent
@@ -198,11 +199,13 @@ class JobManagerTest(unittest.TestCase):
         self.assertTrue(bridge_path.exists(), "workai_bridge.py должен лежать в пакете")
         src = bridge_path.read_text(encoding="utf-8")
         self.assertIn("[WORKAI, \"chat\", prompt, \"-\"", src)
-        self.assertIn("_workai_orphans", src)
+        self.assertIn("_minimize_all_workai", src)
+        self.assertIn("_kill_tree", src)
         spec = importlib.util.spec_from_file_location("workai_bridge", bridge_path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertTrue(hasattr(mod, "_workai_orphans"))
+        self.assertTrue(hasattr(mod, "_workai_pids"))
+        self.assertTrue(hasattr(mod, "_minimize_all_workai"))
         self.assertTrue(hasattr(mod, "_kill_tree"))
         self.assertTrue(hasattr(mod, "launch_workai_native"))
 

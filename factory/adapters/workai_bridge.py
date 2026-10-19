@@ -97,7 +97,7 @@ def extract_response(path: str, prompt: str, min_ts_ms: int) -> str | None:
             continue
         try:
             obj = json.loads(line)
-        except json.JSONDecodeError:
+        except Exception:  # noqa: BLE001 - битая/частично записанная строка
             continue
         kind, k = obj.get("kind"), obj.get("k")
         v = obj.get("v")
@@ -283,17 +283,24 @@ def main() -> int:
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             # ждём, пока графическое окно WorkAI полностью поднимется —
             # иначе `workai chat -` не успевает доставить промпт в сессию
-            ready = time.time() + 40
+            ready = time.time() + 60
+            started_at = 0.0
             while time.time() < ready:
                 if _workai_pids():
-                    # окно появилось; даём Electron ещё довести сессии до готовности
-                    time.sleep(3)
-                    break
+                    if started_at == 0:
+                        started_at = time.time()
+                    # окно уже есть; ждём ещё ~6 секунд, чтобы Electron довёл
+                    # сессии/контейнер чата до готовности к приёму промпта
+                    if time.time() - started_at >= 6:
+                        break
                 time.sleep(1)
             if debug:
                 print("DBG WorkAI поднят:", bool(_workai_pids()), file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
             print(f"WARN: не удалось поднять фоновый WorkAI: {exc}", file=sys.stderr)
+    else:
+        # окно уже открыто — даём ему секунду на стабилизацию после прошлого запроса
+        time.sleep(1.5)
     launch_ms = int(time.time() * 1000)
     if debug:
         print("DBG workai chat (stdin) запускается", file=sys.stderr)

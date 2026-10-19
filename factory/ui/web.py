@@ -775,7 +775,7 @@ async function realChatSend(text,inp,msg){
     answer на провайдере workai, надёжная доставка */
 const body={schema:'invr.task/1',goal:text,session:chatCurrent,
    capabilities:['answer'],
-   constraints:{synthesize:false,timeout_s:240},inputs:{provider:'workai'}};
+   constraints:{synthesize:false,timeout_s:480},inputs:{provider:'workai'}};
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }

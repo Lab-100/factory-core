@@ -5,9 +5,9 @@
 Мост пробует исполнителей ПО ПОРЯДКУ и возвращает первый непустой ответ:
 
   ORDER:
-    1. ollama        — локальная LLM (без окон, без ключей)        [headless]
-    2. opencode      — бесплатные модели (не имеет окна)           [headless]
-    3. pollinations  — безключевой OpenAI-совместимый endpoint     [headless]
+    1. pollinations  — облачная безключевая модель (качественно)   [headless]
+    2. ollama        — локальная LLM (офлайн-фолбэк)               [headless]
+    3. opencode      — бесплатные модели (не имеет окна)           [headless]
     4. claude-code   — Claude Code CLI (-p), если установлен        [headless]
     5. workai-gui    — файл-сессия WorkAI (GUI-окно, ПОСЛЕДНИЙ)    [окно]
 
@@ -31,7 +31,7 @@ from pathlib import Path
 
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
-DEFAULT_ORDER = "ollama,opencode,pollinations,claude-code,workai-gui"
+DEFAULT_ORDER = "pollinations,ollama,opencode,claude-code,workai-gui"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")

@@ -51,6 +51,35 @@ class SettingsTest(unittest.TestCase):
             settings.set("ui.web.port", "9999")
             self.assertEqual(settings.get("ui.web.port"), 9999)
 
+    def test_local_overlay_merges_deeply(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "config" / "settings.toml"
+            path.parent.mkdir()
+            path.write_text("""[providers.cline]
+command = ""
+model = "old"
+
+[providers.workai]
+enabled = false
+""", encoding="utf-8")
+            overlay = root / "state" / "config" / "settings.toml"
+            overlay.parent.mkdir(parents=True)
+            overlay.write_text("""[providers.cline]
+command = "C:/some/local/cline.exe"
+
+[providers.workai]
+enabled = true
+""", encoding="utf-8")
+            settings = load(path)
+            # локальный слой перекрывает команду
+            self.assertEqual(settings.get("providers.cline.command"),
+                             "C:/some/local/cline.exe")
+            # ключи, не затронутые слоем, сохраняются
+            self.assertEqual(settings.get("providers.cline.model"), "old")
+            # включенность тоже перекрывается
+            self.assertIs(settings.get("providers.workai.enabled"), True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -128,6 +128,9 @@ class Dispatcher:
                                or task.constraints.get("provider") or "")
                 if provider:
                     params["provider"] = provider
+                to = task.constraints.get("timeout_s")
+                if to:
+                    params["timeout_s"] = int(to)
                 if (cap == "answer"
                         and task.constraints.get("synthesize", True)):
                     params["synthesize"] = True

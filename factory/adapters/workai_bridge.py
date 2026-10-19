@@ -37,7 +37,7 @@ WORKAI_EXE = r"C:\Program Files\WorkAI\WorkAI.exe"
 WORKSPACE_STORAGE = os.path.join(
     os.environ.get("APPDATA", ""), "WorkAI", "User", "workspaceStorage"
 )
-TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "150"))
+TIMEOUT_S = int(os.environ.get("WORKAI_BRIDGE_TIMEOUT", "240"))
 POLL_S = 0.5
 LAUNCH_MARGIN_MS = 5000  # допуск на рассинхрон часов при сравнении timestamp
 
@@ -340,7 +340,10 @@ def main() -> int:
     if not before:
         # Холодный старт: прогреваем окно тестовым промптом и ждём, пока он
         # осядет в сессии — это знак, что чат-контейнер готов принимать текст.
-        warmup = "_bridge_warmup_"
+        # Промпт УНИКАЛЕН на каждый запуск (pid+время), иначе старые файлы
+        # сессий от прошлых холодных стартов дают ложное «прогрето: True» —
+        # и реальный промпт уходит в ещё стартующий Electron и теряется.
+        warmup = f"_bridge_warmup_{os.getpid()}_{int(time.time())}"
         pid0 = launch_workai_native(warmup)
         if debug:
             print(f"DBG прогрев окна (pid={pid0})", file=sys.stderr)
@@ -358,6 +361,10 @@ def main() -> int:
             if warmed:
                 break
             time.sleep(1)
+        # после подтверждения готовности даём Electron ещё пару секунд,
+        # чтобы контейнер чата окончательно стабилизировался
+        if warmed:
+            time.sleep(3)
         if debug:
             print("DBG окно прогрето:", warmed, file=sys.stderr)
 

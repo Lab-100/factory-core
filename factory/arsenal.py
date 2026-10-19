@@ -92,6 +92,21 @@ DEFAULT_SERVICES: dict[str, dict] = {
         "tags": ["chat", "browser"],
         "docker": False,
     },
+    "workai": {
+        # Графический WorkAI держится открытым (служебное свёрнутое окно):
+        # тогда каждый запрос из чата доставляется в уже готовое окно
+        # стабильно, без холодных стартов и потерянных промптов. Путь к exe
+        # переопределяется настройкой [services.workai] start.
+        "title": "WorkAI (графический агент, служебное окно)",
+        "kind": "command",
+        "command": [r"C:\Program Files\WorkAI\WorkAI.exe"],
+        "owner": "factory",
+        "enabled": True,
+        "start": [r"C:\Program Files\WorkAI\WorkAI.exe"],
+        "stop": ["taskkill", "/IM", "WorkAI.exe", "/F"],
+        "tags": ["chat", "external"],
+        "docker": False,
+    },
     "opencode": {
         "title": "OpenCode",
         "kind": "process",

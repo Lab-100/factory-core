@@ -301,6 +301,31 @@ def main() -> int:
     else:
         # окно уже открыто — даём ему секунду на стабилизацию после прошлого запроса
         time.sleep(1.5)
+
+    if not before:
+        # Холодный старт: прогреваем окно тестовым промптом и ждём, пока он
+        # осядет в сессии — это знак, что чат-контейнер готов принимать текст.
+        warmup = "_bridge_warmup_"
+        pid0 = launch_workai_native(warmup)
+        if debug:
+            print(f"DBG прогрев окна (pid={pid0})", file=sys.stderr)
+        ready = time.time() + 45
+        warmed = False
+        while time.time() < ready:
+            for path in iter_session_files():
+                try:
+                    data = open(path, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                if warmup in data:
+                    warmed = True
+                    break
+            if warmed:
+                break
+            time.sleep(1)
+        if debug:
+            print("DBG окно прогрето:", warmed, file=sys.stderr)
+
     launch_ms = int(time.time() * 1000)
     if debug:
         print("DBG workai chat (stdin) запускается", file=sys.stderr)
@@ -328,21 +353,16 @@ def main() -> int:
               file=sys.stderr)
 
     # Стратегия:
-    #  - если WorkAI уже был открыт пользователем (before непусто) — не трогаем
-    #    его вовсе: следующие запросы будут тёплыми и стабильными;
-    #  - если WorkAI поднял сам мост (холодный старт) — закрываем поднятые
-    #    окна, чтобы они не копились (проблема «ворки не закрываются»).
-    if not before:
-        for pid2 in _workai_pids():
-            if pid2 not in before:
-                if debug:
-                    print(f"DBG закрываю поднятое мостом окно WorkAI pid={pid2}",
-                          file=sys.stderr)
-                _kill_tree(pid2)
-    else:
-        _minimize_all_workai()
-        if debug:
-            print("DBG WorkAI оставлен открытым (был до моста)", file=sys.stderr)
+    #  - WorkAI держим открытым всегда (одно служебное свёрнутое окно) —
+    #    тогда каждый запрос тёплый и доставляется стабильно («вопрос не
+    #    всегда доходит» исчезает);
+    #  - окно сворачиваем, а не закрываем (закрытие ведёт к холодным стартам
+    #    и потерянным промптам); процессов WorkAI при этом не копится: окно
+    #    одно.
+    _minimize_all_workai()
+    if debug:
+        print("DBG WorkAI оставлен открытым (свёрнут) как служебное окно",
+              file=sys.stderr)
 
     if answer:
         sys.stdout.write(answer)

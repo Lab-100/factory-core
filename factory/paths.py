@@ -57,6 +57,13 @@ def _seed_bundled(root: Path) -> None:
         bridge_dst = root / "workai_bridge.py"
         if not bridge_dst.exists() or bridge_dst.read_bytes() != bridge_src.read_bytes():
             shutil.copy2(bridge_src, bridge_dst)
+    # Мост external_agent -> Koda: та же логика, что и для WorkAI, — в архиве
+    # скрипт недоступен, поэтому копируем его рядом с exe.
+    koda_src = meipass / "factory" / "adapters" / "koda_bridge.py"
+    if koda_src.is_file():
+        koda_dst = root / "koda_bridge.py"
+        if not koda_dst.exists() or koda_dst.read_bytes() != koda_src.read_bytes():
+            shutil.copy2(koda_src, koda_dst)
 
 
 def user_root() -> Path:

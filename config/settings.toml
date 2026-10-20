@@ -270,4 +270,9 @@ wait = 0
 # РџР°СѓР·Р° РјРµР¶РґСѓ РїСЂРѕРІРµСЂРєР°РјРё РїСЂРё РѕР¶РёРґР°РЅРёРё Р·Р°РІРµСЂС€РµРЅРёСЏ С‡СѓР¶РѕР№ СЂР°Р±РѕС‚С‹, СЃРµРєСѓРЅРґ
 wait_interval = 30
 
-
+[providers.koda]
+# Koda Code / Koda Desktop: промпт через мост koda_bridge.py (stdin -> stdout).
+# Мост ищет koda/koda.cmd (KODA_CMD, PATH, типовые пути установки).
+enabled = true
+command = ""
+bridge = ""

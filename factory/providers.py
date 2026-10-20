@@ -99,6 +99,15 @@ PROVIDERS: dict[str, dict] = {
         # адаптер external_agent дописывает промпт последним аргументом.
         "prompt_arg": True,
     },
+    "koda": {
+        "title": "Koda (Koda Code / Koda Desktop)",
+        "commands": ["koda", "koda.cmd"],
+        "paths": ["~/AppData/Local/Programs/koda-app", "~/AppData/Local/hermes/node"],
+        # Koda принимает промпт флагом -p (неинтерактивный режим); мост
+        # приводит её к общему формату stdin -> stdout, как WorkAI.
+        "run": ["bridge"],
+        "bridge_default": "koda_bridge.py",
+    },
     "web_chat": {
         # Браузерные веб-чаты (DeepSeek, GigaChat, Qwen, Яндекс/Алиса) —
         # доступ через локальный HTTP-демон browser-chats. Адаптер web_chat
@@ -124,6 +133,14 @@ WORKAI_BRIDGE_DEFAULT = str(
 # Переопределяется настройкой providers.cline.bridge.
 CLINE_BRIDGE_DEFAULT = str(
     Path(__file__).resolve().parent / "adapters" / "cline_bridge.py"
+)
+
+# Путь по умолчанию к мосту external_agent -> Koda (reads stdin -> prints answer).
+# Koda CLI в неинтерактивном режиме (`koda -p`) сам печатает ответ, мост лишь
+# приводит запуск к общему формату фабрики и ищет установленную Koda.
+# Переопределяется настройкой providers.koda.bridge.
+KODA_BRIDGE_DEFAULT = str(
+    Path(__file__).resolve().parent / "adapters" / "koda_bridge.py"
 )
 
 # Путь по умолчанию к мосту headless-каскада (stdin -> stdout). Каскад пробует
@@ -233,6 +250,23 @@ def run_command(settings, name: str) -> list[str]:
             configured_python = settings.get("adapters.workai_python")
             if configured_python:
                 python = str(configured_python)
+        return [python, bridge]
+
+    if str(name) == "koda":
+        # Мост external_agent -> Koda: stdin -> stdout. В замороженной сборке
+        # берём копию, развёрнутую в рабочий корень рядом с exe.
+        bridge = KODA_BRIDGE_DEFAULT
+        if settings is not None:
+            configured = str(settings.get("providers.koda.bridge", "") or "").strip()
+            if configured:
+                bridge = configured
+        if not os.path.isfile(str(bridge)):
+            from .paths import repo_root
+            seeded = repo_root(settings) if settings is not None else repo_root()
+            candidate = str(seeded / "koda_bridge.py")
+            if os.path.isfile(candidate):
+                bridge = candidate
+        python = resolve_python()
         return [python, bridge]
 
     if str(name) == "cascade":

@@ -31,13 +31,20 @@ from pathlib import Path
 
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
-# Порядок ротации: сначала облачные/серверные ИИ (без окон, бесплатно),
-# затем CLI-агенты (opencode), затем GUI WorkAI (окно), локальные модели
-# (Ollama) — и в самом КОНЦЕ claude-code: он нестабилен («не работает из
-# раза в раз»), поэтому пробуем его последним, чтобы он не блокировал
-# более надёжные звенья. Отключать любое звено можно убрав его из
+# Порядок ротации (по просьбе заказчика):
+#   1. pollinations (облачный, без окон, бесплатный);
+#   2. codex       (Codex CLI);
+#   3. cline       (Cline CLI);
+#   4. multitool   (MultiTool CLI);
+#   5. opencode    (OpenCode CLI);
+#   6. workai-gui  (GUI WorkAI — всегда через защищённый мост);
+#   7. ollama      (локальные модели, если включены);
+#   8. claude-code (в самом КОНЦЕ: нестабилен — не должен блокировать
+#      надёжные звенья).
+# Звенья без установленной команды/окружения пропускаются автоматически
+# (каскад идёт дальше); убрать любое звено можно отказавшись от него в
 # CASCADE_ORDER (env) или отключив провайдера на дашборде.
-DEFAULT_ORDER = "pollinations,opencode,workai-gui,ollama,claude-code"
+DEFAULT_ORDER = "pollinations,codex,cline,multitool,opencode,workai-gui,ollama,claude-code"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
@@ -150,6 +157,86 @@ def try_claude_code(prompt: str) -> tuple[bool, str, str]:
     return True, text, ""
 
 
+def try_codex(prompt: str) -> tuple[bool, str, str]:
+    """Codex CLI (OpenAI). Если команды нет — честный пропуск (каскад идёт
+    дальше по ротации, а не падает)."""
+    codex = os.environ.get("CODEX_CMD", "codex")
+    if shutil.which(codex) is None and not os.path.isfile(codex):
+        return False, "", "codex: команда не найдена"
+    try:
+        proc = subprocess.run(
+            [codex, "exec", "--", prompt],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "", f"codex: таймаут {TIMEOUT_S} с"
+    except Exception as exc:  # noqa: BLE001
+        return False, "", f"codex: {exc}"
+    text = (proc.stdout or "").strip()
+    if _bad(text):
+        return False, "", f"codex: rc={proc.returncode}, пустой/ошибка"
+    return True, text, ""
+
+
+def try_cline(prompt: str) -> tuple[bool, str, str]:
+    """Cline CLI. Команда может быть переопределена CLINE_CMD; иначе ищем
+    cline/cline-cli в PATH. Нет команды — пропуск, каскад идёт дальше."""
+    cline = os.environ.get("CLINE_CMD", "")
+    if not cline:
+        for cand in ("cline", "cline-cli"):
+            found = shutil.which(cand)
+            if found:
+                cline = found
+                break
+    if not cline:
+        return False, "", "cline: команда не найдена"
+    try:
+        proc = subprocess.run(
+            [cline, "--print", prompt],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "", f"cline: таймаут {TIMEOUT_S} с"
+    except Exception as exc:  # noqa: BLE001
+        return False, "", f"cline: {exc}"
+    text = (proc.stdout or "").strip()
+    if _bad(text):
+        return False, "", f"cline: rc={proc.returncode}, пустой/ошибка"
+    return True, text, ""
+
+
+def try_multitool(prompt: str) -> tuple[bool, str, str]:
+    """MultiTool CLI. Нет команды — пропуск, каскад идёт дальше."""
+    mt = os.environ.get("MULTITOOL_CMD", "")
+    if not mt:
+        for cand in ("multitool", "mt"):
+            found = shutil.which(cand)
+            if found:
+                mt = found
+                break
+    if not mt:
+        return False, "", "multitool: команда не найдена"
+    try:
+        proc = subprocess.run(
+            [mt, "run", prompt],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "", f"multitool: таймаут {TIMEOUT_S} с"
+    except Exception as exc:  # noqa: BLE001
+        return False, "", f"multitool: {exc}"
+    text = (proc.stdout or "").strip()
+    if _bad(text):
+        return False, "", f"multitool: rc={proc.returncode}, пустой/ошибка"
+    return True, text, ""
+
+
 def try_workai_gui(prompt: str) -> tuple[bool, str, str]:
     # Последний вариант: GUI-окно WorkAI. Запускаем через защищённый мост
     # workai_bridge (мьютекс запуска, проверка памяти ≥20% свободно, лимит
@@ -189,6 +276,9 @@ CASCADES = {
     "pollinations": try_pollinations,
     "claude-code": try_claude_code,
     "workai-gui": try_workai_gui,
+    "codex": try_codex,
+    "cline": try_cline,
+    "multitool": try_multitool,
 }
 
 

@@ -32,19 +32,20 @@ from pathlib import Path
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
 # Порядок ротации (по просьбе заказчика):
-#   1. pollinations (облачный, без окон, бесплатный);
-#   2. codex       (Codex CLI);
-#   3. cline       (Cline CLI);
-#   4. multitool   (MultiTool CLI);
-#   5. opencode    (OpenCode CLI);
-#   6. workai-gui  (GUI WorkAI — всегда через защищённый мост);
-#   7. ollama      (локальные модели, если включены);
-#   8. claude-code (в самом КОНЦЕ: нестабилен — не должен блокировать
+#   1. pollinations    (облачный, без окон, бесплатный);
+#   2. code-desktop    (Code Desktop, он же Codex Desktop);
+#   3. cline           (Cline CLI);
+#   4. multitool       (MultiTool CLI);
+#   5. opencode        (OpenCode CLI);
+#   6. workai-gui      (GUI WorkAI — всегда через защищённый мост);
+#   7. ollama          (локальные модели, если включены);
+#   8. codex           (Codex CLI);
+#   9. claude-code     (в самом КОНЦЕ: нестабилен — не должен блокировать
 #      надёжные звенья).
 # Звенья без установленной команды/окружения пропускаются автоматически
 # (каскад идёт дальше); убрать любое звено можно отказавшись от него в
 # CASCADE_ORDER (env) или отключив провайдера на дашборде.
-DEFAULT_ORDER = "pollinations,codex,cline,multitool,opencode,workai-gui,ollama,claude-code"
+DEFAULT_ORDER = "pollinations,code-desktop,cline,multitool,opencode,workai-gui,ollama,codex,claude-code"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
@@ -180,6 +181,38 @@ def try_codex(prompt: str) -> tuple[bool, str, str]:
     return True, text, ""
 
 
+def try_code_desktop(prompt: str) -> tuple[bool, str, str]:
+    """Code Desktop (он же Codex Desktop) — второе по счёту звено ротации.
+
+    Команда переопределяется env CODEDESKTOP_CMD; иначе ищем `code-desktop`
+    или `code` в PATH. Нет команды — честный пропуск, каскад идёт дальше.
+    """
+    cd = os.environ.get("CODEDESKTOP_CMD", "")
+    if not cd:
+        for cand in ("code-desktop", "code"):
+            found = shutil.which(cand)
+            if found:
+                cd = found
+                break
+    if not cd:
+        return False, "", "code-desktop: команда не найдена"
+    try:
+        proc = subprocess.run(
+            [cd, "--print", prompt],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=TIMEOUT_S,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "", f"code-desktop: таймаут {TIMEOUT_S} с"
+    except Exception as exc:  # noqa: BLE001
+        return False, "", f"code-desktop: {exc}"
+    text = (proc.stdout or "").strip()
+    if _bad(text):
+        return False, "", f"code-desktop: rc={proc.returncode}, пустой/ошибка"
+    return True, text, ""
+
+
 def try_cline(prompt: str) -> tuple[bool, str, str]:
     """Cline CLI. Команда может быть переопределена CLINE_CMD; иначе ищем
     cline/cline-cli в PATH. Нет команды — пропуск, каскад идёт дальше."""
@@ -277,6 +310,7 @@ CASCADES = {
     "claude-code": try_claude_code,
     "workai-gui": try_workai_gui,
     "codex": try_codex,
+    "code-desktop": try_code_desktop,
     "cline": try_cline,
     "multitool": try_multitool,
 }

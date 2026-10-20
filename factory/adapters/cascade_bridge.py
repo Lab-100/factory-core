@@ -51,7 +51,8 @@ def _bad(text: str) -> bool:
     marks = ("rate limit", "quota", "429", "insufficient", "unauthorized",
              "command not found", "is not recognized", "not available",
              "error", "panic", "timeout", "не найдена", "нет ответа",
-             "unreachable", "refused")
+             "unreachable", "refused", "budget", "лимит", "исчерпан",
+             "exceeded", "limit", "ошибка")
     return any(m in low for m in marks)
 
 

@@ -32,11 +32,12 @@ from pathlib import Path
 from ollama_sandbox import default_model, ollama_generate, log, ensure_logdir, LOGDIR
 
 # Порядок ротации: сначала облачные/серверные ИИ (без окон, бесплатно),
-# затем CLI-агенты (claude-code, opencode), затем GUI WorkAI (последнее
-# окно), и в самом конце — локальные модели (Ollama), если включены.
-# Отключать любое звено можно убрав его из CASCADE_ORDER (env) или
-# отключив соответствующий провайдер на дашборде.
-DEFAULT_ORDER = "pollinations,claude-code,opencode,workai-gui,ollama"
+# затем CLI-агенты (opencode), затем GUI WorkAI (окно), локальные модели
+# (Ollama) — и в самом КОНЦЕ claude-code: он нестабилен («не работает из
+# раза в раз»), поэтому пробуем его последним, чтобы он не блокировал
+# более надёжные звенья. Отключать любое звено можно убрав его из
+# CASCADE_ORDER (env) или отключив провайдера на дашборде.
+DEFAULT_ORDER = "pollinations,opencode,workai-gui,ollama,claude-code"
 DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))

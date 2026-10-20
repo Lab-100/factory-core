@@ -2,7 +2,7 @@
   "schema": "invr.project/1",
   "name": "factory-core",
   "title": "Фабрика Lab-100 — пульт и диспетчер",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "description": "Единый верхний слой, связывающий репозитории Lab-100 в одно «предприятие»: подвижные домены, диспетчер задач, веб-дашборд и автоматизация.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Lab-100/factory-core",

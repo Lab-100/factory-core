@@ -72,6 +72,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.browser_reused": "Вывел на передний план уже открытую вкладку дашборда: {url}",
         "web.nav": "Разделы",
         "web.infra": "Карта инфраструктуры",
+        "web.infra_lazy": ("Карта не читается при открытии дашборда: состояние infra-graph "
+                           "загружается в память только по нажатию кнопки."),
+        "web.infra_load": "Загрузить карту",
         "web.infra_shot": "Снимок графа",
         "web.infra_empty": "Узлов нет: инструмент infra-graph не найден в складе INVR либо монитор ещё не записал состояние. Проверьте путь и запустите infra-graph -Daemon -Once.",
         "web.infra_nodes": "Узлы станции",
@@ -532,6 +535,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.browser_reused": "Brought the already open dashboard tab to the front: {url}",
         "web.nav": "Sections",
         "web.infra": "Infrastructure map",
+        "web.infra_lazy": ("The map is not read when the dashboard opens: infra-graph state "
+                           "is loaded into memory only after the button is pressed."),
+        "web.infra_load": "Load map",
         "web.infra_shot": "Graph snapshot",
         "web.infra_empty": "No nodes: the infra-graph tool was not found in the INVR warehouse, or the monitor has not written its state yet. Check the path and run infra-graph -Daemon -Once.",
         "web.infra_nodes": "Station nodes",
@@ -981,6 +987,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "web.browser_reused": "已将已打开的仪表板标签页置于前台：{url}",
         "web.nav": "分区",
         "web.infra": "基础设施地图",
+        "web.infra_lazy": "打开仪表板时不读取地图：仅按下按钮后才将 infra-graph 状态载入内存。",
+        "web.infra_load": "载入地图",
         "web.infra_shot": "图形快照",
         "web.infra_empty": "没有节点：INVR 仓库中未找到 infra-graph 工具，或监视器尚未写入状态。请检查路径并运行 infra-graph -Daemon -Once。",
         "web.infra_nodes": "站点节点",

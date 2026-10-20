@@ -162,9 +162,13 @@ class InfraStateClarityTest(unittest.TestCase):
         self.assertIn("img.src='/api/infra/shot.png'", text)
         self.assertIn("if(shotMtime!==mt||!img.getAttribute('src'))", text)
 
-    def test_infra_polling_not_faster_than_5s(self) -> None:
+    def test_infra_loads_only_on_button_press(self) -> None:
+        """Карта не читается при открытии дашборда и не опрашивается сама — только по кнопке."""
         text = page()
-        self.assertIn("setInterval(function(){loadArsenal();loadInfra();loadMonitoring();},5000)", text)
+        self.assertNotIn("loadMonitoring();loadInfra()", text)          # нет загрузки при старте
+        self.assertNotIn("loadArsenal();loadInfra()", text)             # нет опроса в интервале
+        self.assertIn('onclick="loadInfra()"', text)                    # кнопка «Загрузить карту»
+        self.assertIn("<details><summary>", text)                       # «Кандидаты» не раскрыты сами
 
 
 class TranslationTest(unittest.TestCase):

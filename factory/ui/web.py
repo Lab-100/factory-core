@@ -285,6 +285,8 @@ _TEMPLATE = """<!doctype html>
  <section><h2>{{t_quotas}}</h2><div id="quotas"></div></section>
  <section><h2>{{t_monitoring}}</h2><div id="monitor"></div></section>
  <section><h2>{{t_infra}}</h2>
+  <p class="hint">{{t_infra_lazy}}</p>
+  <p><button onclick="loadInfra()">{{t_infra_load}}</button></p>
   <p id="infraSummary"></p>
   <p class="hint" id="infraLegend">{{t_infra_legend}}</p>
   <div id="infra"></div>
@@ -316,6 +318,7 @@ const T={
  thTitle:'{{t_ses_th_title}}',thCount:'{{t_ses_th_count}}',
  sesNew:'{{t_ses_new}}',sesOpen:'{{t_ses_open}}',sesSend:'{{t_ses_send}}',sesPh:'{{t_ses_ph}}',sesDel:'{{t_ses_delete}}',
  nav:'{{t_web_nav}}',infraShot:'{{t_infra_shot}}',infraEmpty:'{{t_infra_empty}}',
+  infraLoad:'{{t_infra_load}}',infraLazy:'{{t_infra_lazy}}',
   infraCounts:'{{t_infra_counts}}',infraLegend:'{{t_infra_legend}}',infraTotal:'{{t_infra_total}}',
   infraShotAt:'{{t_infra_shot_at}}',infraShotNone:'{{t_infra_shot_none}}',
   infraShotReady:'{{t_infra_shot_ready}}',infraShotFail:'{{t_infra_shot_fail}}',
@@ -571,7 +574,7 @@ function savePort(){
 }
 function refreshAll(){
  load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();
- loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+ loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 }
 async function openSession(id){
  currentSession=id;
@@ -1169,7 +1172,7 @@ async function loadInfra(){
  box.innerHTML=
   '<p class="hint"><small>'+esc(String(g.saved_at||'').slice(0,19))+' · '+esc(T.infraNodes)+': '+g.total+' · '+esc(g.path||'')+'</small></p>'+
   '<div class="infra-grid">'+cols+'</div>'+
-  '<details open><summary>'+esc(T.infraCandidates)+'</summary>'+cand+'</details>'+
+  '<details><summary>'+esc(T.infraCandidates)+'</summary>'+cand+'</details>'+
   '<details><summary>'+esc(T.infraEvents)+'</summary>'+ev+'</details>';
 }
 /* --- снимок карты: PNG перезапрашивается только когда он изменился --- */
@@ -1200,10 +1203,10 @@ async function shotGraph(){
   if(d.ok){shotMtime=null;loadInfra();}
  }catch(e){ if(msg) msg.textContent=T.infraShotFail+e; }
 }
-load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadInfra();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
 chatTab(localStorage.getItem('factory.view')==='chat'?'chat':'board');
 setInterval(loadJobs,2000);
-setInterval(function(){loadArsenal();loadInfra();loadMonitoring();},5000);
+setInterval(function(){loadArsenal();loadMonitoring();},5000);
 setInterval(function(){loadDoctor();loadQuotas();loadProviders();loadLedger();},15000);
 setInterval(function(){loadSessions();loadCatalog();},30000);
 setInterval(function(){
@@ -1322,6 +1325,8 @@ def _page(lang: str) -> str:
         "t_prov_hint": tr("web.prov_hint"),
         "t_web_nav": tr("web.nav"),
         "t_infra": tr("web.infra"),
+        "t_infra_lazy": tr("web.infra_lazy"),
+        "t_infra_load": tr("web.infra_load"),
         "t_infra_shot": tr("web.infra_shot"),
         "t_infra_shot_refresh": tr("web.infra_shot_refresh"),
         "t_infra_shot_at": tr("web.infra_shot_at"),

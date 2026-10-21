@@ -37,9 +37,11 @@ class ToolsRootTest(unittest.TestCase):
         store = home / ".devstation" / "tools"
         (store / "registry" / "doc-extract" / "1.0.0").mkdir(parents=True)
         (store / "resolve-tools.ps1").write_text("#", encoding="utf-8")
-        with mock.patch.dict(os.environ, {"USERPROFILE": str(home), "HOME": str(home)}):
-            self._isolate_env()
-            self.assertEqual(paths.tools_root(), store)
+        # склад рядом с корнем фабрики не должен мешать проверке домашнего
+        with mock.patch("factory.paths.repo_root", return_value=self.root / "factory"):
+            with mock.patch.dict(os.environ, {"USERPROFILE": str(home), "HOME": str(home)}):
+                self._isolate_env()
+                self.assertEqual(paths.tools_root(), store)
 
     def test_ignores_plain_directory(self) -> None:
         # каталог без признаков склада (нет resolve-tools и registry) не принимается

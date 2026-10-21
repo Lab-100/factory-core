@@ -21,6 +21,10 @@ class FakeSettings:
         }
 
     def get(self, key, default=None):
+        # как у настоящих настроек фабрики: плоский ключ с точками
+        # («opencode.config_dir») разворачивается во вложенный словарь
+        if key == "opencode.config_dir":
+            return self._data["opencode"]["config_dir"]
         return self._data.get(key, default)
 
 

@@ -84,8 +84,10 @@ class InventoryTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"USERPROFILE": str(home), "HOME": str(home)}):
             for name in ("INVR_TOOLS_ROOT", "DEVSTATION_TOOLS"):
                 os.environ.pop(name, None)
-            self.assertEqual(inventory.locate(settings, "scripts-tools"), store)
-            data = inventory.build(settings)
+            # склад рядом с репозиторием не должен мешать проверке домашнего
+            with mock.patch("factory.paths.repo_root", return_value=nested):
+                self.assertEqual(inventory.locate(settings, "scripts-tools"), store)
+                data = inventory.build(settings)
         source = data["sources"]["scripts-tools"]
         self.assertTrue(source["available"])
         self.assertEqual(source["count"], 1)

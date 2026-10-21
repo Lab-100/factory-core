@@ -1,6 +1,7 @@
 """Тесты проектных настроек: поиск, слияние, применение, инициализация."""
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,14 +29,16 @@ class ProjectsTest(unittest.TestCase):
         deep.mkdir(parents=True)
         # ближайший вверх — в корне
         target = self._write("factory.toml", 'x = 1\n')
-        self.assertEqual(projects.find_project(deep), target)
+        # сравниваем по идентичности файла: на Windows временный каталог может
+        # приходить как 8.3-имя (RUNNER~1), и строковое равенство не подходит
+        self.assertTrue(os.path.samefile(projects.find_project(deep), target))
 
     def test_find_project_prefers_closer(self) -> None:
         deep = self.root / "a" / "b"
         deep.mkdir(parents=True)
         self._write("factory.toml", "a = 1\n")
         near = self._write("a/.factory/settings.toml", "b = 2\n")
-        self.assertEqual(projects.find_project(deep), near)
+        self.assertTrue(os.path.samefile(projects.find_project(deep), near))
 
     def test_find_project_none(self) -> None:
         lonely = self.root / "empty"

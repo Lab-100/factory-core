@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +56,14 @@ DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+# Сколько секунд оркестратор ждёт первый ответ в параллельной гонке быстрых
+# провайдеров (по умолчанию 45 с). Победитель гонки возвращается сразу;
+# остальные звенья при необходимости доследуют последовательно.
+RACE_TIMEOUT_S = float(os.environ.get("CASCADE_RACE_TIMEOUT", "25"))
+# Быстрые headless-звенья, которые опрашиваются ПАРАЛЛЕЛЬНО (первый ответ).
+# Оконные/нестабильные (workai-gui, codex, claude-code) — последовательный
+# фолбэк после гонки.
+RACE_FAST = ("pollinations", "koda", "cline", "multitool", "opencode", "ollama")
 # Файл «потока размышлений»: фабрика передаёт путь через CASCADE_STREAM_FILE,
 # мост пишет туда этапы и порции ответа — чат показывает их разворачиваемым
 # блоком, не дожидаясь конца обработки.
@@ -72,7 +81,7 @@ def _stream(line: str) -> None:
 
 
 def _bad(text: str) -> bool:
-    """Признак «получен не ответ, а ошибка/лимит»."""
+    """Признак «получен не ответ, а ошибка/лимит/мусор»."""
     if not text:
         return True
     low = text[:400].lower()
@@ -81,7 +90,21 @@ def _bad(text: str) -> bool:
              "error", "panic", "timeout", "не найдена", "нет ответа",
              "unreachable", "refused", "budget", "лимит", "исчерпан",
              "exceeded", "limit", "ошибка")
-    return any(m in low for m in marks)
+    if any(m in low for m in marks):
+        return True
+    # Кракозябры/бинарный мусор (например, ollama отдаёт мусор в неправильной
+    # кодировке): высокая доля символов из диапазона «вопрос-знак/мусор» или
+    # знаки замены U+FFFD.
+    if "\ufffd" in text:
+        return True
+    # Доля «непечатных» и редко встречающихся символов не должна быть высокой
+    try:
+        weird = sum(1 for ch in text[:200] if ord(ch) < 32 and ch not in "\t\n\r")
+        if len(text[:200]) and weird / len(text[:200]) > 0.15:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 def _answer_file(status: str, model: str, prompt: str, text: str,
@@ -143,7 +166,7 @@ def try_pollinations(prompt: str) -> tuple[bool, str, str]:
         headers={"Content-Type": "application/json"}, method="POST")
     # Жёсткий короткий таймаут: pollinations бывает недоступен/медленный,
     # и нельзя чтобы фабрика ждала его полный TIMEOUT_S (висла бы).
-    poll_timeout = int(os.environ.get("CASCADE_POLLINATIONS_TIMEOUT", "30"))
+    poll_timeout = int(os.environ.get("CASCADE_POLLINATIONS_TIMEOUT", "15"))
     try:
         with urllib.request.urlopen(req, timeout=poll_timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -347,6 +370,39 @@ CASCADES = {
 }
 
 
+def _probe_one(name: str, prompt: str, deadline: float) -> tuple[str, bool, str, str]:
+    """Проверить одно звено каскада; вернуть (имя, ok, текст, ошибка)."""
+    if time.monotonic() >= deadline:
+        return name, False, "", "бюджет каскада исчерпан"
+    fn = CASCADES.get(name)
+    if not fn:
+        return name, False, "", "неизвестен"
+    t = time.monotonic()
+    log(f"каскад: пробую {name} ...")
+    _stream(f"[try] пробую {name} …")
+    try:
+        ok, text, err = fn(prompt)
+    except Exception as exc:  # noqa: BLE001
+        ok, text, err = False, "", f"{name}: {exc!r}"
+    dt_ms = int((time.monotonic() - t) * 1000)
+    if ok and _bad(text):
+        # Звено «ответило», но текст — мусор (кракозябры/бинарный мусор/
+        # ошибка-маркер): не принимаем, переходим к следующему.
+        ok, err = False, f"{name}: мусорный ответ ({len(text)} симв.)"
+        log(f"каскад: {name} отброшен как мусор ({len(text)} симв., {dt_ms}ms)", "WARN")
+        _stream(f"[fail] {name}: мусорный ответ")
+    if ok:
+        log(f"каскад: {name} ОК ({len(text)} симв., {dt_ms}ms)")
+        _stream(f"[ok] {name} ответил ({len(text)} симв., {dt_ms}ms)")
+        if len(text) > 400:
+            for i in range(0, len(text), 400):
+                _stream(f"[chunk] {text[i:i+400]}")
+    else:
+        log(f"каскад: {name} отказ ({dt_ms}ms): {err}", "WARN")
+        _stream(f"[fail] {name}: {err}")
+    return name, ok, text, (err or "нет ответа")
+
+
 def main() -> int:
     try:
         prompt = sys.stdin.read()
@@ -364,51 +420,61 @@ def main() -> int:
     total_deadline = start + MAX_TOTAL_S
     attempts: list[tuple[str, str]] = []
     log(f"=== КАСКАД старт order={order} prompt={prompt[:60]!r} max_total={MAX_TOTAL_S}s ===")
-    _stream(f"[start] каскад запущен, порядок: {order}")
+    _stream(f"[start] оркестратор запущен, порядок: {order}")
 
-    for name in (n.strip() for n in order.split(",") if n.strip()):
+    names = [n.strip() for n in order.split(",") if n.strip()]
+    race = [n for n in names if n in RACE_FAST]
+    slow = [n for n in names if n not in RACE_FAST]
+
+    # ПАРАЛЛЕЛЬНАЯ ГОНКА быстрых звеньев: первый ответ возвращается сразу.
+    raced: set[str] = set()
+    result_done: tuple[str, str] | None = None
+    race_deadline = start + RACE_TIMEOUT_S
+    workers = max(1, min(len(race), 4))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_probe_one, n, prompt, total_deadline): n for n in race}
+        for fut in as_completed(futures):
+            name, ok, text, err = fut.result()
+            raced.add(name)
+            attempts.append((name, err))
+            if ok:
+                result_done = (name, text)
+                break
+            if time.monotonic() >= race_deadline or time.monotonic() >= total_deadline:
+                break
+    if result_done:
+        _finish_done(result_done[0], result_done[1], prompt, pid, utc_start, start)
+        return 0
+    _stream("[race] быстрые звенья не ответили в срок, пробую последовательно")
+
+    # ПОСЛЕДОВАТЕЛЬНЫЙ ФОЛБЭК: медленные/оконные звенья + добиваем быстрые,
+    # которые не успели в гонке.
+    remaining = [n for n in names if n not in raced or not attempts or True]
+    for name in remaining:
+        if name in raced:
+            continue
         if time.monotonic() >= total_deadline:
-            log(f"каскад: общий бюджет {MAX_TOTAL_S}с исчерпан, прекращаю", "WARN")
-            attempts.append((name, f"общий бюджет {MAX_TOTAL_S}с исчерпан"))
+            attempts.append((name, "бюджет каскада исчерпан"))
             break
         fn = CASCADES.get(name)
         if not fn:
-            log(f"каскад {name}: неизвестен, пропуск", "WARN")
             attempts.append((name, "неизвестен"))
             continue
-        t = time.monotonic()
-        log(f"каскад: пробую {name} ...")
-        _stream(f"[try] пробую {name} …")
-        try:
-            ok, text, err = fn(prompt)
-        except Exception as exc:  # noqa: BLE001
-            ok, text, err = False, "", f"{name}: {exc!r}"
-        dt_ms = int((time.monotonic() - t) * 1000)
+        rname, ok, text, err = _probe_one(name, prompt, total_deadline)
+        attempts.append((rname, err))
         if ok:
-            log(f"каскад: {name} ОК ({len(text)} симв., {dt_ms}ms)")
-            _stream(f"[ok] {name} ответил ({len(text)} симв., {dt_ms}ms)")
-            if len(text) > 400:
-                for i in range(0, len(text), 400):
-                    _stream(f"[chunk] {text[i:i+400]}")
-            _answer_file("DONE", name, prompt, text, dt_ms, None, pid, utc_start)
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            _finish_done(rname, text, prompt, pid, utc_start, start)
             return 0
-        log(f"каскад: {name} отказ ({dt_ms}ms): {err}", "WARN")
-        _stream(f"[fail] {name}: {err}")
-        attempts.append((name, err or "нет ответа"))
 
     dur_ms = int((time.monotonic() - start) * 1000)
     msg = f"каскад: все исполнители не дали ответа ({order})"
     log(msg, "ERROR")
     _answer_file("FAILED", "", prompt, "", dur_ms, msg, pid, utc_start)
-    # Отчёт заказчику: перечисляем, кого пробовали и почему не вышло,
-    # и возвращаем приказ — решай сам или переотправь задачу.
     report_lines = [
         "НЕ УДАЛОСЬ ПОЛУЧИТЬ ОТВЕТ НИ ОТ ОДНОГО ИСПОЛНИТЕЛЯ.",
         f"Цепочка провайдеров ({order}):",
     ]
-    for name in (n.strip() for n in order.split(",") if n.strip()):
+    for name in names:
         reason = "неизвестен/пропущен"
         for stored in reversed(attempts or []):
             if stored[0] == name:
@@ -422,6 +488,15 @@ def main() -> int:
     sys.stdout.write(report)
     sys.stdout.flush()
     return 2
+
+
+def _finish_done(name: str, text: str, prompt: str, pid: int,
+                 utc_start: str, start: float) -> None:
+    """Записать успех каскада: файл-ответ + stdout."""
+    dt_ms = int((time.monotonic() - start) * 1000)
+    _answer_file("DONE", name, prompt, text, dt_ms, None, pid, utc_start)
+    sys.stdout.write(text)
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":

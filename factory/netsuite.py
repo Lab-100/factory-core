@@ -1,13 +1,15 @@
 """Единый сервис средств обхода («сетевая связка Lab-100») — ядро.
 
-Модуль собирает в один реестр три средства, которые вместе дают доступ к
+Модуль собирает в один реестр средства, которые вместе дают доступ к
 внешней сети:
 
   * ``region-spoof``     — подмена региона и локальный прокси (127.0.0.1:8888);
   * ``ai-gateway``       — шлюз маршрутизации: direct / пул proxybroker /
                            Cloudflare Worker (127.0.0.1:8898) + генерация PAC;
   * ``my-openai-gemini`` — прокси Gemini→OpenAI-формат (локально `node node.mjs`
-                           либо готовый деплой на Vercel/Netlify/Cloudflare).
+                           либо готовый деплой на Vercel/Netlify/Cloudflare);
+  * ``ai-sni-proxy``     — перенаправление имён ИИ-сервисов через прокси-сервер
+                           правкой hosts-файла (PowerShell-скрипт ai-sni-proxy).
 
 Модуль — только органы управления, без графики: реестр (:func:`tool_specs`),
 параметры в ``config/settings.toml`` под ``[netsuite.*]`` (:func:`get_params`,
@@ -202,9 +204,33 @@ TOOLS: list[dict] = [
                "Путь к node (пусто — искать в PATH)"),
             _p("gemini_key", "Ключ Gemini", "secret", "",
                "Ключ только для локальных проверок (наружу не отдаётся)"),
-            _p("deploy_target", "Площадка деплоя", "select", "vercel",
-               "Куда разворачивать сервис",
-               choices=["vercel", "netlify", "cloudflare"]),
+_p("deploy_target", "Площадка деплоя", "select", "vercel",
+                "Куда разворачивать сервис",
+                choices=["vercel", "netlify", "cloudflare"]),
+        ],
+    },
+    {
+        "id": "ai-sni-proxy",
+        "title": "ai-sni-proxy (хосты ИИ через прокси)",
+        "description": ("Перенаправляет имена ИИ-сервисов (Claude, ChatGPT, Gemini "
+                        "и др.) через прокси-сервер, добавляя блок в hosts-файл. "
+                        "Отдельная утилита, не зависит от region-spoof."),
+        "kind": "powershell",
+        "default_port": 0,
+        "config_file": "",
+        "launcher": "ai-sni-proxy.ps1",
+        "params": [
+            _p("enabled", "Включено", "bool", False,
+               "Учитывать средство в сервисе обхода (по умолчанию выключено)"),
+            _p("root", "Корень", "path", "",
+               "Каталог ai-sni-proxy, где лежит bin\\ai-sni-proxy.ps1 (пусто — искать на рабочем столе)"),
+            _p("entry", "Входной узел", "str", "84.38.189.217",
+               "Адрес прокси-сервера (куда смотрят имена из списка)"),
+            _p("list_url", "Список доменов", "str",
+               "https://chimney.steep-man.ru/ai-sni-proxy/domains.txt",
+               "URL опубликованного списка доменов (или пусто — использовать bundled fallback)"),
+            _p("hosts_path", "Путь к hosts", "path", "",
+               "Путь к hosts-файлу (пусто — системный \\Windows\\System32\\drivers\\etc\\hosts)"),
         ],
     },
 ]
@@ -288,7 +314,56 @@ def default_root(settings, tool_id: str) -> Path:
             if (candidate / "config.json").exists():
                 return candidate
         return candidates[0] if candidates else factory / "region-spoof"
+    if tool_id == "ai-sni-proxy":
+        # Пустое место поиска: репозиторий рядом с фабрикой, Lab100-Factory,
+        # либо любой каталог на рабочем столе с bin\ai-sni-proxy.ps1.
+        candidates = list(_search_desktop_for_sni())
+        if settings is not None:
+            base = _base(settings)
+            candidates += [base.parent / "ai-sni-proxy", base / "ai-sni-proxy"]
+        candidates.append(factory / "ai-sni-proxy")
+        for candidate in candidates:
+            if (candidate / "bin" / "ai-sni-proxy.ps1").exists():
+                return candidate
+        return candidates[0] if candidates else factory / "ai-sni-proxy"
     return factory / str(tool_id)
+
+
+def _search_desktop_for_sni() -> list[Path]:
+    """Поиск каталога ai-sni-proxy на рабочих столах (один уровень вглубь)."""
+    found: list[Path] = []
+    for desktop in _desktop_dirs():
+        if not desktop.is_dir():
+            continue
+        names = []
+        try:
+            names = sorted(os.listdir(desktop))
+        except OSError:
+            continue
+        for name in names:
+            candidate = desktop / name
+            if candidate.is_dir() and (candidate / "bin" / "ai-sni-proxy.ps1").exists():
+                found.append(candidate)
+    return found
+
+
+def _desktop_dirs() -> list[Path]:
+    """Каталоги «Рабочий стол» из переменных окружения Windows (вдобавок к стандартному)."""
+    dirs: list[Path] = []
+    for var in ("USERPROFILE", "OneDriveDesktop", "OneDrive"):
+        value = os.environ.get(var)
+        if not value:
+            continue
+        for rel in ("Desktop", "Рабочий стол"):
+            path = Path(value) / rel
+            if path.is_dir():
+                dirs.append(path)
+    home = Path.home()
+    for rel in ("Desktop", "Рабочий стол"):
+        path = home / rel
+        if path.is_dir():
+            dirs.append(path)
+    return dirs
 
 
 def root_of(settings, tool_id: str) -> Path:
@@ -565,6 +640,13 @@ def _binaries(settings, tool_id: str) -> dict:
     if tool_id == "ai-gateway":
         return {"gateway": (root / "gateway.py").exists(),
                 "make_pac": (root / "tools" / "make-pac.py").exists()}
+    if tool_id == "ai-sni-proxy":
+        return {
+            "script": (root / "bin" / "ai-sni-proxy.ps1").exists(),
+            "fallback": (root / "domains" / "fallback.txt").exists(),
+            "enable_bat": (root / "windows" / "enable.bat").exists(),
+            "disable_bat": (root / "windows" / "disable.bat").exists(),
+        }
     return {"node_mjs": (root / "node.mjs").exists(),
             "package_json": (root / "package.json").exists()}
 
@@ -653,6 +735,13 @@ def _config_matches(settings, tool_id: str) -> bool:
     """Соответствует ли фактический конфиг настроенному."""
     root = root_of(settings, tool_id)
     raw = _raw_params(settings, tool_id)
+    if tool_id == "ai-sni-proxy":
+        # Файла-конфига нет: «применено» = работает hosts-блок с настроенным узлом.
+        hosts = Path(str(_hosts_file_of(settings, tool_id)))
+        block = _sni_block_lines(hosts)
+        if not block:
+            return False
+        return any(str(raw.get("entry") or "") in line for line in block)
     path = root / str(TOOLS_BY_ID[tool_id]["config_file"])
     if not path.exists():
         return False
@@ -667,6 +756,43 @@ def _config_matches(settings, tool_id: str) -> bool:
         return False
     expected = _expected_config(tool_id, raw)
     return all(_same(data.get(key), value) for key, value in expected.items())
+
+
+def _hosts_file_of(settings, tool_id: str) -> Path:
+    """Путь к hosts-файлу: из параметров средства либо системный."""
+    if tool_id == "ai-sni-proxy":
+        raw = _raw_params(settings, tool_id)
+        configured = str(raw.get("hosts_path") or "").strip()
+        if configured:
+            return Path(configured)
+    return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "drivers" / "etc" / "hosts"
+
+
+def _sni_block_lines(path: Path) -> list[str]:
+    """Строки блока ai-sni-proxy внутри hosts-файла (между маркерами)."""
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    except OSError:
+        return []
+    inside = False
+    block: list[str] = []
+    for line in lines:
+        if "ai-sni-proxy: begin" in line:
+            inside = True
+            continue
+        if "ai-sni-proxy: end" in line:
+            inside = False
+            continue
+        if inside:
+            block.append(line)
+    return block
+
+
+def _sni_block_in_hosts(path: Path) -> bool:
+    """Есть ли действующий блок ai-sni-proxy в hosts-файле."""
+    return bool(_sni_block_lines(path))
 
 
 def _same(left: Any, right: Any) -> bool:
@@ -701,6 +827,12 @@ def _expected_config(tool_id: str, raw: dict) -> dict:
             "upstream_proxy": raw["upstream_proxy"],
             "upstream_domains": raw["upstream_domains"],
             "routes": [[p, v] for p, v in routes if p],
+        }
+    if tool_id == "ai-sni-proxy":
+        return {
+            "entry": raw["entry"],
+            "list_url": raw["list_url"],
+            "hosts_path": raw["hosts_path"],
         }
     return {"PORT": raw["local_port"], "DEFAULT_MODEL": raw["default_model"]}
 
@@ -742,6 +874,13 @@ def _issues(settings, tool_id: str, raw: dict, binaries: dict) -> list[str]:
             out.append("выбран Cloudflare Worker, но cf_port не задан")
         if raw.get("make_pac") and not binaries.get("make_pac"):
             out.append("нет tools/make-pac.py — PAC генерироваться не будет")
+    elif tool_id == "ai-sni-proxy":
+        if not binaries.get("script"):
+            out.append("нет bin/ai-sni-proxy.ps1 — клиент ai-sni-proxy не развёрнут")
+        if not binaries.get("fallback"):
+            out.append("нет domains/fallback.txt — резервный список доменов отсутствует")
+        if not binaries.get("disable_bat"):
+            out.append("нет windows/disable.bat — отключить ai-sni-proxy придётся вручную")
     else:
         if raw.get("mode") == "local":
             if not binaries.get("node_mjs"):
@@ -765,6 +904,8 @@ def _tool_status(settings, tool_id: str) -> dict:
         port = _as_int(raw.get("proxy_port"), 8888)
     elif tool_id == "ai-gateway":
         port = _as_int(raw.get("listen_port"), 8898)
+    elif tool_id == "ai-sni-proxy":
+        port = 0  # у ai-sni-proxy нет сетевого порта — только правка hosts
     else:
         port = _as_int(raw.get("local_port"), 8080)
     binaries = _binaries(settings, tool_id)
@@ -772,6 +913,7 @@ def _tool_status(settings, tool_id: str) -> dict:
     required_ok = bool(str(raw.get("root") or "").strip()) and (
         bool(str(raw.get("base_url") or "").strip())
         if tool_id == "my-openai-gemini" and raw.get("mode") == "deployed" else True)
+    hosts_path = _hosts_file_of(settings, tool_id)
     return {
         "id": tool_id,
         "title": found["title"],
@@ -786,6 +928,8 @@ def _tool_status(settings, tool_id: str) -> dict:
         "binaries": binaries,
         "params_ok": required_ok,
         "applied": _config_matches(settings, tool_id),
+        "hosts_path": str(hosts_path),
+        "hosts_has_block": _sni_block_in_hosts(hosts_path),
         "issues": _issues(settings, tool_id, raw, binaries),
     }
 
@@ -968,6 +1112,8 @@ def apply(settings, tool_id: str | None = None) -> dict:
             outcome = apply_region_spoof(settings, raw)
         elif item == "ai-gateway":
             outcome = apply_ai_gateway(settings, raw)
+        elif item == "ai-sni-proxy":
+            outcome = apply_ai_sni_proxy(settings, raw)
         else:
             outcome = apply_my_openai_gemini(settings, raw)
         results[item] = outcome
@@ -976,6 +1122,34 @@ def apply(settings, tool_id: str | None = None) -> dict:
         warnings += [f"{item}: {text}" for text in outcome.get("warnings") or []]
     return {"ok": all(r.get("ok") for r in results.values()),
             "changed": changed, "warnings": warnings, "tools": results}
+
+
+def apply_ai_sni_proxy(settings, raw: dict) -> dict:
+    """Собрать командную строку ai-sni-proxy: проверить наличие скрипта и маркеров.
+
+    Сама правка hosts-файла «боевая» и происходит только в start/stop (как и у
+    других средств: apply лишь приводит конфиг/каталог, а не поднимает сервис).
+    Здесь проверяем, что клиент на месте и параметры валидны.
+    """
+    root = Path(str(raw["root"]))
+    if not root.is_dir():
+        return {"ok": False, "changed": [], "warnings": [f"каталог не найден: {root}"]}
+    script = root / "bin" / "ai-sni-proxy.ps1"
+    if not script.exists():
+        return {"ok": False, "changed": [],
+                "warnings": [f"нет bin/ai-sni-proxy.ps1 в {root}"]}
+    entry = str(raw.get("entry") or "").strip() or "84.38.189.217"
+    changed: list[str] = []
+    hosts = _hosts_file_of(settings, "ai-sni-proxy")
+    block = _sni_block_lines(hosts)
+    if block and any(entry in line for line in block):
+        # Блок уже стоит и с ожидаемым узлом — считаем применённым.
+        pass
+    else:
+        changed = ["hosts_state"]
+    return {"ok": True, "path": str(script), "changed": changed,
+            "warnings": [], "hosts_path": str(hosts),
+            "entry": entry, "script": str(script)}
 
 
 # --- запуск и остановка -------------------------------------------------------
@@ -1025,13 +1199,20 @@ def _spawn(argv: list[str], *, cwd: Path) -> dict:
 
 
 def start(settings, tool_id: str) -> dict:
-    """Запустить средство (отвязанно) и запомнить pid в реестре сервиса."""
+    """Запустить средство (отвязанно) и запомнить pid в реестре сервиса.
+
+    Для ``ai-sni-proxy`` запуск означает разовую правку hosts-файла командой
+    ``ai-sni-proxy.ps1 enable`` — долгоживущего процесса нет, поэтому pid не
+    записывается: состояние отражается в ``status.hosts_has_block``.
+    """
     if tool_id not in TOOLS_BY_ID:
         return {"ok": False, "error": f"неизвестное средство: {tool_id}"}
     raw = _raw_params(settings, tool_id)
     root = Path(str(raw["root"]))
     if not root.is_dir():
         return {"ok": False, "error": f"каталог не найден: {root}"}
+    if tool_id == "ai-sni-proxy":
+        return _sni_enable(settings, raw)
     if tool_id == "region-spoof":
         argv = [_python_arg(settings, raw), "applet.py"]
     elif tool_id == "ai-gateway":
@@ -1067,12 +1248,54 @@ def start(settings, tool_id: str) -> dict:
     return {"ok": True, "pid": spawned["pid"], "argv": argv, "root": str(root)}
 
 
+def _sni_argv(settings, raw: dict, command: str) -> list[str]:
+    """Командная строка вызова ai-sni-proxy.ps1 (enable/disable)."""
+    root = Path(str(raw["root"]))
+    script = root / "bin" / "ai-sni-proxy.ps1"
+    argv = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script), command]
+    entry = str(raw.get("entry") or "").strip()
+    if entry and command == "enable":
+        argv += ["-Entry", entry]
+    list_url = str(raw.get("list_url") or "").strip()
+    if list_url and command == "enable":
+        argv += ["-ListUrl", list_url]
+    hosts = str(raw.get("hosts_path") or "").strip()
+    if hosts and command == "disable":
+        argv += ["-HostsPath", hosts]
+    return argv
+
+
+def _sni_enable(settings, raw: dict) -> dict:
+    """Включить ai-sni-proxy: добавить блок в hosts (штатная правка)."""
+    root = Path(str(raw["root"]))
+    script = root / "bin" / "ai-sni-proxy.ps1"
+    if not script.exists():
+        return {"ok": False, "error": f"нет bin/ai-sni-proxy.ps1 в {root}"}
+    hosts = _hosts_file_of(settings, "ai-sni-proxy")
+    if _sni_block_in_hosts(hosts):
+        return {"ok": True, "already": True, "hosts_path": str(hosts),
+                "note": "блок ai-sni-proxy уже присутствует в hosts"}
+    argv = _sni_argv(settings, raw, "enable")
+    run = _run(argv, cwd=root, timeout=90)
+    applied = _sni_block_in_hosts(hosts)
+    return {"ok": applied, "hosts_path": str(hosts),
+            "block_applied": applied,
+            "detail": str(run.get("detail"))[:500] if not applied else "",
+            "argv": argv}
+
+
 def stop(settings, tool_id: str) -> dict:
-    """Остановить средство: штатно (--stop-all) либо по своему pid."""
+    """Остановить средство: штатно (--stop-all) либо по своему pid.
+
+    Для ``ai-sni-proxy`` остановка — обратная правка hosts (``disable``).
+    """
     if tool_id not in TOOLS_BY_ID:
         return {"ok": False, "error": f"неизвестное средство: {tool_id}"}
     raw = _raw_params(settings, tool_id)
     root = Path(str(raw["root"]))
+    if tool_id == "ai-sni-proxy":
+        return _sni_disable(settings, raw)
     steps: list[dict] = []
     live = running_pid(settings, tool_id)
     if tool_id == "region-spoof" and (root / "applet.py").exists():
@@ -1092,6 +1315,24 @@ def stop(settings, tool_id: str) -> dict:
     if not steps:
         return {"ok": True, "note": "нечего останавливать", "steps": []}
     return {"ok": all(step["ok"] for step in steps), "steps": steps}
+
+
+def _sni_disable(settings, raw: dict) -> dict:
+    """Выключить ai-sni-proxy: убрать блок из hosts (штатная проверка)."""
+    root = Path(str(raw["root"]))
+    hosts = _hosts_file_of(settings, "ai-sni-proxy")
+    if not _sni_block_in_hosts(hosts):
+        return {"ok": True, "already": True, "hosts_path": str(hosts),
+                "note": "блока ai-sni-proxy в hosts нет — отключать нечего"}
+    script = root / "bin" / "ai-sni-proxy.ps1"
+    if not script.exists():
+        return {"ok": False, "error": f"нет bin/ai-sni-proxy.ps1 в {root}"}
+    argv = _sni_argv(settings, raw, "disable")
+    run = _run(argv, cwd=root, timeout=90)
+    removed = not _sni_block_in_hosts(hosts)
+    return {"ok": removed, "hosts_path": str(hosts),
+            "block_removed": removed, "argv": argv,
+            "detail": str(run.get("detail"))[:500] if not removed else ""}
 
 
 def _kill_pid(pid: int) -> dict:
@@ -1149,6 +1390,14 @@ def check(settings, tool_id: str | None = None) -> dict:
             rows.append({"id": item, "ok": opened, "host": host, "port": port,
                          "detail": (f"{host}:{port} отвечает" if opened
                                     else f"{host}:{port} закрыт")})
+        elif item == "ai-sni-proxy":
+            hosts = _hosts_file_of(settings, item)
+            present = _sni_block_in_hosts(hosts)
+            root_exists = root.is_dir()
+            rows.append({"id": item, "ok": present, "hosts_path": str(hosts),
+                         "root_exists": root_exists,
+                         "detail": ("блок ai-sni-proxy в hosts присутствует" if present
+                                    else "блока ai-sni-proxy в hosts нет")})
         else:
             rows.append(_check_gemini(raw))
     return {"schema": SCHEMA, "generated": _now(), "tools": rows,
@@ -1203,6 +1452,20 @@ def bootstrap(settings, tool_id: str) -> dict:
                     "error": "нет gateway.py — копия ai-gateway не развёрнута"}
         return {"ok": True, "steps": [{"step": "проверка gateway.py", "ok": True,
                                        "detail": f"найден: {launcher}"}]}
+    if tool_id == "ai-sni-proxy":
+        script = root / "bin" / "ai-sni-proxy.ps1"
+        steps = []
+        if not script.exists():
+            return {"ok": False, "steps": [{"step": "bin/ai-sni-proxy.ps1", "ok": False,
+                                            "detail": f"нет файла: {script}"}],
+                    "error": "нет bin/ai-sni-proxy.ps1 — клиент ai-sni-proxy не развёрнут"}
+        steps.append({"step": "bin/ai-sni-proxy.ps1", "ok": True, "detail": str(script)})
+        hosts = _hosts_file_of(settings, tool_id)
+        steps.append({"step": "hosts-файл", "ok": hosts.exists(),
+                      "detail": f"target: {hosts}"})
+        steps.append({"step": "справочный запуск", "ok": True,
+                      "detail": "возможные команды: enable / disable / status"})
+        return {"ok": True, "steps": steps}
     node = shutil.which(str(raw.get("node_path") or "node"))
     launcher = root / "node.mjs"
     ok = bool(node) and launcher.exists()

@@ -38,6 +38,21 @@ class ExternalAgentAdapter(Adapter):
         candidates = providers.enabled(self.settings)
         if wanted:
             return next((item for item in candidates if item["name"] == wanted), None)
+        # выбор по рейтингу: точность/скорость/специализация/запросы (ratings)
+        try:
+            from .. import ratings
+            from .. import quotas as _quotas
+            q_snap = None
+            try:
+                q_snap = _quotas.build(self.settings).get("providers")
+            except Exception:  # noqa: BLE001
+                q_snap = None
+            chosen = ratings.pick(self.settings, str(params.get("cap") or params.get("action") or "answer"),
+                                  candidates, quotas_snapshot=q_snap)
+            if chosen is not None:
+                return chosen
+        except Exception:  # noqa: BLE001 — сбой рейтинга не должен ломать выбор
+            pass
         return candidates[0] if candidates else None
 
     @staticmethod
@@ -150,28 +165,84 @@ class ExternalAgentAdapter(Adapter):
             f"{prompt}\n\n{parts}"
         )
         orchestrator = variants[0]
-        rc, raw = self._execute(orchestrator, synth_prompt, prompt_arg, timeout)
-        if rc != 0:
-            return StepResult(False, "error", self.name, action,
-                              {"provider": provider["name"], "tried": tried},
-                              error=(raw or "")[:500] or "оркестратор не ответил")
-        content = (providers.extract_cline_text(raw)
-                   if provider["name"] == "cline" else raw.strip())
-        if not content:
-            return StepResult(False, "error", self.name, action,
-                              {"provider": provider["name"]},
-                              error="оркестратор вернул пустой ответ")
-        return StepResult(True, "ok", self.name, action,
-                          {"provider": provider["name"], "synthesized": True,
-                           "sources": list(answers.keys()),
-                           "content": content[:4000], "tried": tried})
+        max_rounds = int(params.get("synth_rounds", 3))
+
+        def _assess(text: str) -> str:
+            """Оценка ответа: 'ok' | 'weak' | 'bad' по содержанию."""
+            t = (text or "").strip()
+            if len(t) < 15:
+                return "bad"
+            low = t.lower()
+            bad_markers = ("не знаю", "не могу ответить", "нет данных",
+                           "i don't know", "error", "ошибка", "извини",
+                           "нет информации", "не нашёл")
+            for m in bad_markers:
+                if m in low:
+                    return "bad"
+            # ответ почти повторяет вопрос — считаем слабым
+            q = (prompt or "").strip().lower()[:40]
+            if q and q in low[:len(q) + 5]:
+                return "weak"
+            return "ok"
+
+        last_content = ""
+        errors: list[str] = []
+        # Круг доводки: если синтезированный ответ слабый/пустой/расходится —
+        # уточняем оркестратору (с замечанием) и пробуем снова, до max_rounds.
+        for round_i in range(1, max_rounds + 1):
+            rc, raw = self._execute(orchestrator, synth_prompt, prompt_arg, timeout)
+            if rc != 0:
+                errors.append((raw or "")[:200] or f"код {rc}")
+                # дали оркестратору сбойную попытку — не тратим раунд впустую
+                if round_i >= max_rounds:
+                    break
+                synth_prompt += (
+                    f"\n\nПримечание: предыдущая попытка синтеза сбояла "
+                    f"({(raw or '')[:120]}). Попробуй ещё раз кратко и прямо."
+                )
+                continue
+            content = (providers.extract_cline_text(raw)
+                       if provider["name"] == "cline" else raw.strip())
+            last_content = content
+            verdict = _assess(content)
+            if verdict == "ok":
+                return StepResult(True, "ok", self.name, action,
+                                  {"provider": provider["name"], "synthesized": True,
+                                   "sources": list(answers.keys()),
+                                   "content": content[:4000], "tried": tried,
+                                   "rounds": round_i})
+            if verdict == "weak":
+                synth_prompt += (
+                    "\n\nПримечание: твой прежний ответ почти повторял вопрос и "
+                    "не отвечал по сути. Дай развёрнутый и по делу ответ на вопрос."
+                )
+            else:  # bad
+                synth_prompt += (
+                    "\n\nПримечание: предыдущий ответ был неудовлетворительным "
+                    "(пустой, «не знаю» или сбой). Дай честный, корректный "
+                    "ответ на исходный вопрос."
+                )
+        # после всех раундов: если хоть что-то есть — отдаём это, иначе отказ
+        if last_content:
+            return StepResult(True, "ok", self.name, action,
+                              {"provider": provider["name"], "synthesized": True,
+                               "sources": list(answers.keys()),
+                               "content": last_content[:4000], "tried": tried,
+                               "rounds": max_rounds, "final_fallback": True})
+        return StepResult(False, "error", self.name, action,
+                          {"provider": provider["name"], "tried": tried,
+                           "rounds": max_rounds},
+                          error=("; ".join(errors) or "оркестратор не дал внятного "
+                                 "ответа после нескольких раундов доводки"))
 
     def _run_single(self, pname: str, variants: list, prompt: str,
                     prompt_arg: bool, timeout: int, action: str,
                     stream_file: str = "") -> StepResult:
+        import time as _time
         last_error = ""
         last_code = None
         tried = 0
+        started = _time.time()
         for command in variants:
             tried += 1
             rc, raw = self._execute(command, prompt, prompt_arg, timeout, stream_file)
@@ -179,6 +250,13 @@ class ExternalAgentAdapter(Adapter):
                 content = (providers.extract_cline_text(raw)
                            if pname == "cline" else raw.strip())
                 if content:
+                    # запись статистики в рейтинг (точность/скорость/специализация)
+                    try:
+                        from .. import ratings
+                        ratings.record(self.settings, pname, str(action), True,
+                                       (_time.time() - started) * 1000.0)
+                    except Exception:  # noqa: BLE001
+                        pass
                     return StepResult(True, "ok", self.name, action,
                                       {"provider": pname,
                                        "content": content[:4000],
@@ -188,6 +266,13 @@ class ExternalAgentAdapter(Adapter):
                 continue
             last_error = raw.strip()[:500] or f"код возврата {rc}"
             last_code = rc
+        # отказ — фиксируем ошибку в статистике
+        try:
+            from .. import ratings
+            ratings.record(self.settings, pname, str(action), False,
+                           (_time.time() - started) * 1000.0)
+        except Exception:  # noqa: BLE001
+            pass
         return StepResult(False, "error", self.name, action,
                           {"provider": pname, "returncode": last_code,
                            "tried": tried},

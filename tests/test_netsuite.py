@@ -47,10 +47,11 @@ class NetsuiteBase(unittest.TestCase):
 class RegistryTest(NetsuiteBase):
     """Реестр средств и схемы параметров."""
 
-    def test_three_tools_with_required_keys(self) -> None:
+    def test_all_tools_with_required_keys(self) -> None:
         specs = netsuite.tool_specs()
         self.assertEqual([item["id"] for item in specs],
-                         ["region-spoof", "ai-gateway", "my-openai-gemini"])
+                         ["region-spoof", "ai-gateway", "my-openai-gemini",
+                          "ai-sni-proxy"])
         for item in specs:
             for key in ("id", "title", "description", "kind", "default_port",
                         "config_file", "params", "launcher"):
@@ -89,6 +90,9 @@ class RegistryTest(NetsuiteBase):
                            "default_model", "node_path", "gemini_key", "deploy_target"}
         self.assertTrue(gemini_expected <= by_id["my-openai-gemini"],
                         sorted(gemini_expected - by_id["my-openai-gemini"]))
+        sni_expected = {"enabled", "root", "entry", "list_url", "hosts_path"}
+        self.assertTrue(sni_expected <= by_id["ai-sni-proxy"],
+                        sorted(sni_expected - by_id["ai-sni-proxy"]))
         # выборы полей совпадают с реальными значениями средств
         select = {d["key"]: d["choices"] for d in netsuite.tool_specs()[0]["params"]
                   if d["type"] == "select"}
@@ -251,15 +255,16 @@ class StatusTest(NetsuiteBase):
         netsuite.set_param(self.settings, "ai-gateway", "listen_port", str(FREE_PORT))
         netsuite.set_param(self.settings, "my-openai-gemini", "root", missing)
         netsuite.set_param(self.settings, "my-openai-gemini", "local_port", str(FREE_PORT))
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", missing)
         data = netsuite.status(self.settings)
-        self.assertEqual(len(data["tools"]), 3)
+        self.assertEqual(len(data["tools"]), 4)
         for row in data["tools"]:
             self.assertFalse(row["root_exists"], row["id"])
             self.assertFalse(row["port_open"], row["id"])
             self.assertFalse(row["applied"], row["id"])
             self.assertTrue(row["issues"], row["id"])
             self.assertTrue(row["running"] is False, row["id"])
-        self.assertEqual(data["summary"]["total"], 3)
+        self.assertEqual(data["summary"]["total"], 4)
         self.assertEqual(data["summary"]["running"], 0)
 
     def test_applied_and_binaries(self) -> None:
@@ -460,6 +465,74 @@ class ControlTest(NetsuiteBase):
     def test_check_unknown_tool(self) -> None:
         result = netsuite.check(self.settings, "нет-такого")
         self.assertFalse(result["ok"])
+
+
+class AiSniProxyTest(NetsuiteBase):
+    """ai-sni-proxy: реестр, параметры, состояние hosts-блока, контроль."""
+
+    def _make_sni_root(self) -> Path:
+        return self._make_root("ai-sni-proxy",
+                               ("bin/ai-sni-proxy.ps1", "domains/fallback.txt",
+                                "windows/enable.bat", "windows/disable.bat"))
+
+    def test_params_defaults(self) -> None:
+        params = netsuite.get_params(self.settings, "ai-sni-proxy")
+        self.assertFalse(params["enabled"])            # безопасное умолчание
+        self.assertEqual(params["entry"], "84.38.189.217")
+        self.assertTrue(str(params["root"]).strip())
+
+    def test_status_hosts_block_detection(self) -> None:
+        root = self._make_sni_root()
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", str(root))
+        hosts = Path(self.root) / "hosts-test"
+        netsuite.set_param(self.settings, "ai-sni-proxy", "hosts_path", str(hosts))
+        row = netsuite.status(self.settings, "ai-sni-proxy")
+        self.assertTrue(row["root_exists"])
+        self.assertEqual(str(Path(row["hosts_path"])), str(hosts))
+        self.assertFalse(row["hosts_has_block"])
+        # блок в hosts → статус «применено/включено»
+        hosts.write_text(
+            "# comment\n"
+            "# >>> ai-sni-proxy: begin, do not edit by hand >>>\n"
+            "# enabled 2026-01-01\n"
+            "84.38.189.217\tapi.openai.com\n"
+            "# <<< ai-sni-proxy: end <<<\n",
+            encoding="utf-8",
+        )
+        row = netsuite.status(self.settings, "ai-sni-proxy")
+        self.assertTrue(row["hosts_has_block"])
+        self.assertTrue(row["applied"])
+
+    def test_start_missing_script(self) -> None:
+        root = self._make_root("ai-sni-proxy")  # bin/ai-sni-proxy.ps1 нет
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", str(root))
+        result = netsuite.start(self.settings, "ai-sni-proxy")
+        self.assertFalse(result["ok"])
+        self.assertIn("ai-sni-proxy.ps1", result["error"])
+
+    def test_bootstrap_with_script_and_fallback(self) -> None:
+        root = self._make_sni_root()
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", str(root))
+        result = netsuite.bootstrap(self.settings, "ai-sni-proxy")
+        self.assertTrue(result["ok"], result)
+        steps = {step["step"] for step in result["steps"]}
+        self.assertIn("bin/ai-sni-proxy.ps1", steps)
+
+    def test_bootstrap_missing_script_refused(self) -> None:
+        root = self._make_root("ai-sni-proxy")
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", str(root))
+        result = netsuite.bootstrap(self.settings, "ai-sni-proxy")
+        self.assertFalse(result["ok"])
+
+    def test_apply_detects_block_state(self) -> None:
+        root = self._make_sni_root()
+        netsuite.set_param(self.settings, "ai-sni-proxy", "root", str(root))
+        hosts = Path(self.root) / "hosts-test"
+        netsuite.set_param(self.settings, "ai-sni-proxy", "hosts_path", str(hosts))
+        result = netsuite.apply(self.settings, "ai-sni-proxy")
+        self.assertTrue(result["ok"], result)
+        # блока нет → считается «изменённым» (нужен start)
+        self.assertTrue(any("hosts_state" in item for item in result["changed"]))
 
 
 if __name__ == "__main__":

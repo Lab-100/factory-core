@@ -928,7 +928,10 @@ const nature=document.getElementById('chatNature')?.value||'auto';
   if(attachments.length) body.inputs.attachments=attachments;
   /* писать в чат, кому передан запрос и какой провайдер/группа выбран */
   const chosenProv=(prov&&prov!=='auto')?prov:'по усмотрению оркестратора';
-  await appendChatNote('→ запрос передан: '+(model?('модель '+model+', '):'')+chosenProv+(nature!=='auto'?(' (характер: '+nature+')'):''),'system');
+  const groupNote=isWeb?('web-чат: '+webMap[prov])
+    :(prov==='cascade'||prov==='auto')?'оркестратор-каскад: группа ИИ из 9 звеньев (pollinations/koda/cline/opencode/workai/ollama/codex/claude-code), быстрые — параллельно, первый ответ возвращается сразу'
+    :chosenProv;
+  await appendChatNote('→ запрос передан: '+(model?('модель '+model+', '):'')+groupNote+(nature!=='auto'?(' (характер: '+nature+')'):''),'system');
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }

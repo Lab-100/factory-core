@@ -203,6 +203,22 @@ _TEMPLATE = """<!doctype html>
   .msg.assistant{align-self:flex-start;background:#171c26;border:1px solid #262b36}
   .msg.system{align-self:flex-start;background:#12161e;border-left:4px solid #2d6cdf;border-top:1px solid #262b36;border-right:1px solid #262b36;border-bottom:1px solid #262b36;border-radius:6px 10px 10px 6px;color:#aab6cc;font-size:14px}
   .msg small{display:block;color:#8b93a7;font-size:13px;margin-top:5px}
+  /* --- туду-лист запроса: над полем ввода, сворачивается в мини-овал --- */
+  .todobox{display:none;align-items:center;gap:10px;padding:6px 10px;margin:0 0 8px;background:#12202a;border:1px solid #2d4a6b;border-radius:12px;font-size:14px;min-width:0}
+  .todobadge{flex:none;cursor:pointer;background:#1b3550;color:#9ad1ff;border:1px solid #2d6cdf;border-radius:20px;padding:3px 13px;font-size:13px;white-space:nowrap}
+  .todobadge .cnt{font-variant-numeric:tabular-nums;font-weight:600;color:#fff}
+  .todobadge small{color:#6b8db8;font-size:11px}
+  .todoitems{display:none;flex-direction:column;gap:2px;flex:1;min-width:0;max-height:140px;overflow-y:auto}
+  .todobox[data-open="1"] .todoitems{display:flex}
+  .todobox[data-open="1"] .todoexpand{transform:rotate(180deg)}
+  .todoitem{display:flex;gap:8px;align-items:flex-start;padding:1px 4px;color:#d7e3f5;font-size:13px;min-width:0}
+  .todoitem .tk{color:#5ddc7d;flex:none;font-weight:700}
+  .todoitem.done .tt{text-decoration:line-through;color:#6b8db8}
+  .todoitem.err .tt{color:#e06c75}
+  .todoitem .td{color:#8b93a7;font-size:12px;margin-left:auto;padding-left:8px;white-space:nowrap}
+  .tododetail{color:#e5c07b;font-size:12px;margin:2px 0 0 22px;white-space:pre-wrap;word-break:break-word}
+  .todoexpand{flex:none;cursor:pointer;border:0;background:none;color:#6b8db8;font-size:13px;padding:2px 6px}
+  .todoexpand:hover{color:#9ad1ff}
   .chatrow{display:flex;gap:10px;align-items:center}
   .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px;line-height:1.55}
   .chatrow textarea{flex:1;font-size:17px;min-height:48px;padding:10px 14px;font-family:inherit;line-height:1.55}
@@ -265,6 +281,11 @@ _TEMPLATE = """<!doctype html>
    <div class="chatmain">
     <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span><span class="hint chatrun" id="chatRun"></span></div>
     <div class="chatlog" id="chatLog"></div>
+    <div class="todobox" id="todoBox" data-open="0">
+     <span class="todobadge" onclick="todoToggle()"><span id="todoCnt" class="cnt">0/0</span> <small>задач</small> ▾</span>
+     <div class="todoitems" id="todoItems"></div>
+     <button class="todoexpand" onclick="todoToggle()" title="свернуть">▾</button>
+    </div>
     <div class="chatrow">
      <textarea id="chatInput" rows="1" placeholder="{{t_chat_ph}}" autocomplete="off" style="resize:none;overflow-y:auto"></textarea>
      <button onclick="chatToggleRows()" id="chatRowsBtn" title="{{t_chat_rows}}">⤢</button>
@@ -782,6 +803,7 @@ function chatRun(){
 }
 async function openChat(id){
  chatCurrent=id;
+ todoOpenAuto();
  renderChats();
  const s=await j('/api/sessions/get?id='+encodeURIComponent(id));
  const log=document.getElementById('chatLog');
@@ -1107,6 +1129,7 @@ function showJobProgress(id,goal){
   if(!jj||jj.error){
    return;
   }
+  renderTodo(jj);
   const elapsed=Math.floor((Date.now()-started)/1000);
   const st=jj.status||'running';
   const step=jj.last_step||(st==='running'?'выполняется…':st);
@@ -1171,6 +1194,40 @@ function showJobProgress(id,goal){
  };
  render();
  jobTimer=setInterval(render,1500);
+}
+function todoToggle(){
+ const box=document.getElementById('todoBox');
+ if(!box) return;
+ const open=box.getAttribute('data-open')==='1'?'0':'1';
+ box.setAttribute('data-open',open);
+ /* запоминаем состояние (mini-овал / развёрнут) в localStorage */
+ try{localStorage.setItem('factTodoOpen',open);}catch(e){}
+}
+function todoOpenAuto(){
+ const box=document.getElementById('todoBox');
+ if(!box) return;
+ try{const o=localStorage.getItem('factTodoOpen');if(o)box.setAttribute('data-open',o);}catch(e){}
+}
+function renderTodo(job){
+ const box=document.getElementById('todoBox');
+ if(!box) return;
+ const items=job&&job.todo?job.todo:[];
+ if(!items.length){box.style.display='none';return}
+ box.style.display='flex';
+ const done=items.filter(function(it){return it.done}).length;
+ const cnt=document.getElementById('todoCnt');
+ if(cnt) cnt.textContent=done+'/'+items.length;
+ const list=document.getElementById('todoItems');
+ if(!list) return;
+ let html='';
+ items.forEach(function(it){
+  let cls='todoitem'+(it.done?' done':(it.detail?' err':''));
+  let mark=it.done?'✓':'○';
+  let td=it.done?'':(it.detail?'отказ':'…');
+  html+='<div class="'+cls+'"><span class="tk">'+mark+'</span><span class="tt">'+esc(it.text||'')+'</span><span class="td">'+esc(td)+'</span></div>';
+  if(it.detail&&it.done===false) html+='<div class="tododetail">'+esc(String(it.detail).slice(0,200))+'</div>';
+ });
+ list.innerHTML=html;
 }
 async function appendChatNote(text,role){
  if(!chatCurrent||!text) return;

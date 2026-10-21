@@ -123,6 +123,7 @@ class JobManager:
             "answer": _answer_text(result),
             "models": _model_names(result),
             "stream": job.get("stream"),
+            "todo": job.get("todo") or [],
         }
 
     # --- запуск ---
@@ -145,6 +146,9 @@ class JobManager:
             "result": None,
             "error": None,
             "stream": None,
+            # туду-лист запроса: пункты плана (шаги), отмечаются по выполнению.
+            # Каждый пункт: {"text": str, "done": bool, "detail": str}
+            "todo": [],
         }
         # поток размышлений: вход inputs.stream_file (короткое имя) превращаем
         # в абсолютный путь и заодно передаём адаптеру в задаче
@@ -219,6 +223,26 @@ class JobManager:
                 return
             job["status"] = "running"
             job["last_step"] = "запуск…"
+            # туду-лист из плана: делаем план заранее, чтобы показать пункты
+            # до начала исполнения
+            try:
+                _matched, _steps = dispatcher.plan(task)
+                todo: list[dict] = []
+                for _tid, _s in enumerate(_steps):
+                    cap = getattr(_s, "capability", "") or ""
+                    adp = getattr(_s, "adapter", "") or ""
+                    if cap == "region-switch":
+                        continue
+                    label = cap.replace("tool:", "инструмент ").replace("-", " ")
+                    if adp and adp not in cap:
+                        label += f" ({adp})"
+                    # key сопоставляет пункт с шагом в on_step (capability+adapter+порядок)
+                    todo.append({"key": f"{cap}:{adp}:{_tid}",
+                                 "text": label.strip(), "done": False, "detail": ""})
+                if todo:
+                    job["todo"] = todo
+            except Exception:  # noqa: BLE001 — план не должен ломать задачу
+                pass
             self._persist(job)
             # Стартовую заметку в сессию больше НЕ пишем: прогресс задачи
             # показывает один банер в чате (JS), а ленте хватает одного
@@ -229,6 +253,18 @@ class JobManager:
                 if self._is_stopped(job_id):
                     return
                 # phase: start | ok | error | unavailable | skipped | awaiting-approval | simulated
+                # отметка пункта туду-листа по завершении шага
+                if step is not None and phase in ("ok", "error", "unavailable", "skipped"):
+                    cap = getattr(step, "capability", "") or ""
+                    adp = getattr(step, "adapter", "") or ""
+                    key = f"{cap}:{adp}:{getattr(step, 'id', 0)}"
+                    todo = job.get("todo") or []
+                    for item in todo:
+                        if item.get("key") == key:
+                            thing = bool(getattr(res, "ok", False)) if res is not None else False
+                            item["done"] = thing or phase == "skipped"
+                            item["detail"] = str(getattr(res, "error", "") or "") if res is not None and not thing else ""
+                            break
                 step_name = ""
                 if step is not None:
                     cap = getattr(step, "capability", "") or ""

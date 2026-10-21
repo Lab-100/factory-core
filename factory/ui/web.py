@@ -203,10 +203,20 @@ _TEMPLATE = """<!doctype html>
   .msg.assistant{align-self:flex-start;background:#171c26;border:1px solid #262b36}
   .msg.system{align-self:flex-start;background:#12161e;border-left:4px solid #2d6cdf;border-top:1px solid #262b36;border-right:1px solid #262b36;border-bottom:1px solid #262b36;border-radius:6px 10px 10px 6px;color:#aab6cc;font-size:14px}
   .msg small{display:block;color:#8b93a7;font-size:13px;margin-top:5px}
-  .chatrow{display:flex;gap:10px}
-  .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px}
+  .chatrow{display:flex;gap:10px;align-items:center}
+  .chatrow input{flex:1;font-size:17px;min-height:48px;padding:10px 14px;line-height:1.55}
+  .chatrow textarea{flex:1;font-size:17px;min-height:48px;padding:10px 14px;font-family:inherit;line-height:1.55}
+  .chatrow textarea{min-height:20px}
   .chatrow button{font-size:16px;min-height:48px;padding:8px 22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chatrow button#chatRowsBtn{min-width:44px;padding:8px 10px}
+  .attachrow{display:inline-flex;align-items:center;gap:6px;background:#0f1115;border:1px solid #3a4250;border-radius:8px;padding:6px 12px;margin:0;cursor:pointer;font-size:15px;color:#9ad1ff}
+  .attachrow input{min-height:0;width:auto}
+  #chatFilesInfo{font-size:13px;margin-left:8px;color:#8b93a7}
   #chatMsg{font-size:14px}
+  .invrbtn{background:#1b2130;border:1px solid #2d6cdf;color:#9ad1ff;font-size:13px;min-height:26px;padding:3px 12px;border-radius:6px;cursor:pointer;margin-left:10px;vertical-align:middle}
+  .invrbtn:hover{border-color:#4d8dff;color:#fff}
+ .upbadge{background:#3a2f1b;border:1px solid #e5c07b;color:#e5c07b;font-size:12px;border-radius:10px;padding:2px 10px;cursor:pointer;margin-left:8px;vertical-align:middle;white-space:nowrap}
+ .upbadge:hover{background:#4a3a1f}
 .jobrun{display:inline-flex;align-items:center;gap:10px;background:#141a26;border:1px solid #2d6cdf;border-radius:10px;padding:8px 14px;font-size:15px;color:#cfd8e8;margin:6px 0}
 .jobrun .spinner{width:14px;height:14px;border:2px solid #2d6cdf;border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;flex:none}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -227,7 +237,10 @@ _TEMPLATE = """<!doctype html>
   .fsrow input[type=range]{width:100%}
  }
 </style></head><body>
-<header><h1>{{t_title}} <span class="ver">v{{version}}</span></h1>
+<header><h1>{{t_title}} <span class="ver">v{{version}}</span>
+ <button class="invrbtn" onclick="openInvr()" title="{{t_invr_title}}">INVR ▸</button>
+ <span class="upbadge" id="upgradeBadge" style="display:none" onclick="chatTab('board');document.getElementById('setTabs')&&[...document.querySelectorAll('#setTabs .tab')].find(b=>b.dataset.pane==='pane-service')&&document.querySelector('#setTabs .tab[data-pane="pane-service"]').click()">▲ есть апгрейд</span>
+</h1>
 <div class="vtabs" id="vtabs">
  <button class="vtab" data-view="chat" onclick="chatTab('chat')">{{t_chat}}</button>
  <button class="vtab" data-view="board" onclick="chatTab('board')">{{t_board}}</button>
@@ -249,9 +262,12 @@ _TEMPLATE = """<!doctype html>
     <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span><span class="hint chatrun" id="chatRun"></span></div>
     <div class="chatlog" id="chatLog"></div>
     <div class="chatrow">
-     <input id="chatInput" placeholder="{{t_chat_ph}}" autocomplete="off">
+     <textarea id="chatInput" rows="1" placeholder="{{t_chat_ph}}" autocomplete="off" style="resize:none;overflow-y:auto"></textarea>
+     <button onclick="chatToggleRows()" id="chatRowsBtn" title="{{t_chat_rows}}">⤢</button>
      <button onclick="chatSend()">{{t_chat_send}}</button>
     </div>
+    <div class="chatrow"><label class="attachrow">📎 <input type="file" id="chatFiles" multiple style="width:auto"></label>
+     <span class="hint" id="chatFilesInfo"></span></div>
     <div class="hint" id="chatMsg"></div>
    </div>
   </div>
@@ -294,6 +310,7 @@ _TEMPLATE = """<!doctype html>
   <img class="shot" id="shotImg" alt="infra-graph" style="display:none" onerror="this.style.display='none'">
  </section>
  <section><h2>{{t_catalog}}</h2><div id="catalog"></div></section>
+ <section><h2>{{t_capabilities}}</h2><div class="hint" id="capsSum"></div><div id="capabilities"></div></section>
  <section><h2>{{t_doctor}}</h2><div class="hint" id="doctorSum"></div><div id="doctor"></div></section>
  <section><h2>{{t_arsenal}}</h2><div class="hint" id="arsenalSum"></div><div id="arsenal"></div></section>
  <section><h2>{{t_logs}}</h2><div id="logs"></div></section>
@@ -329,7 +346,8 @@ const T={
  chatWait:'{{t_chat_wait}}',chatSent:'{{t_chat_sent}}',
  chatTimer:'{{t_chat_timer}}',chatNoReaction:'{{t_chat_no_reaction}}',chatRetry:'{{t_chat_retry}}',chatLogSent:'{{t_chat_log_sent}}',
  lang:'{{t_lang}}',tabUi:'{{t_tab_ui}}',tabAuto:'{{t_tab_auto}}',tabNet:'{{t_tab_net}}',tabService:'{{t_tab_service}}',fontSize:'{{t_font_size}}',save:'{{t_save}}',
- tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}'
+ tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}',
+ upgradeCheck:'{{t_upgrade_check}}',invrTitle:'{{t_invr_title}}',chatRows:'{{t_chat_rows}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 /* --- окна: одно окно, новые вкладки не создаём --- */
@@ -518,10 +536,12 @@ async function load(){
    '<b>'+esc(T.lang)+'</b><span>'+esc(s.lang||'ru')+'</span></div>'+
    '<p><button onclick="savePort()">'+esc(T.save)+'</button></p>'+
    '<p><label>'+esc(T.tPort)+' <input id="portInput" style="width:120px" value="'+esc(String(s.web_port||''))+'"></label></p></div>'+
-  '<div class="pane" id="pane-service">'+
-   '<p><button onclick="refreshAll()">'+esc(T.tRefreshAll)+'</button>'+
-   ' <button onclick="showLogs(&#39;factory&#39;)">'+esc(T.logsPh||'Журналы')+'</button></p>'+
-   '<p class="hint">'+esc(T.tServiceHint)+'</p></div>');
+'<div class="pane" id="pane-service">'+
+    '<p><button onclick="refreshAll()">'+esc(T.tRefreshAll)+'</button>'+
+    ' <button onclick="showLogs(&#39;factory&#39;)">'+esc(T.logsPh||'Журналы')+'</button>'+
+    ' <button onclick="checkUpgrade()">'+esc(T.upgradeCheck)+'</button></p>'+
+    '<p class="hint" id="upgradeMsg"></p>'+
+    '<p class="hint">'+esc(T.tServiceHint)+'</p></div>');
  const sel=document.getElementById('langSel');
  if(sel) sel.value=(s.lang||'ru');
  const range=document.getElementById('fsRange');
@@ -572,10 +592,29 @@ function savePort(){
  if(!input) return;
  setSetting('ui.web.port',input.value.trim());
 }
+async function checkUpgrade(){
+ const msg=document.getElementById('upgradeMsg');
+ if(msg) msg.textContent='…';
+ try{
+  const r=await fetch('/api/upgrade',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const d=await r.json();
+  if(msg) msg.textContent=(d&&d.text)||JSON.stringify(d||{});
+ }catch(e){ if(msg) msg.textContent='ошибка: '+e; }
+}
+async function dropUpgradeIcon(){
+ try{
+  const r=await j('/api/upgrade');
+  const upd=(r&&r.has_update);
+  const el=document.getElementById('upgradeBadge');
+  if(!el) return;
+  if(upd){el.style.display='';el.title='Есть обновление фабрики: v'+(r.remote||'')}
+  else{el.style.display='none'}
+ }catch(e){}
+}
 function refreshAll(){
  load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();
- loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
-}
+loadMonitoring();loadCatalog();loadCapabilities();loadDoctor();loadArsenal();loadLogs();
+ }
 async function openSession(id){
  currentSession=id;
  const s=await j('/api/sessions/get?id='+encodeURIComponent(id));
@@ -751,35 +790,71 @@ function startChatTimers(){
  },1000);
 }
 let chatSending=false;
+let chatRows=false;
+function chatToggleRows(){
+ const inp=document.getElementById('chatInput');
+ if(!inp) return;
+ chatRows=!chatRows;
+ const h=chatRows?Math.min(5,Math.max(2,(inp.value.split('\\n').length||1)+1)):1;
+ inp.rows=h;
+ inp.style.height=(h*18+8)+'px';
+ const b=document.getElementById('chatRowsBtn');
+ if(b) b.textContent=chatRows?'⤡':'⤢';
+}
+function openInvr(){
+ const root=(document.getElementById('infra')||{dataset:{}}).dataset;
+ const base=window.location.origin;
+ const tools=document.querySelector('#infraSummary')?document.querySelector('#infraSummary').textContent:'';
+ window.open('/'); /* окно одно, переходим на пульт; кнопка INVR ведёт в раздел инфраструктуры */
+ document.querySelectorAll('#nav a').forEach(a=>{if(a.textContent.indexOf('Карт')>=0||a.textContent.indexOf('Инфра')>=0)a.click()});
+ const secs=[...document.querySelectorAll('main>section')];
+ const target=secs.find(s=>(s.querySelector('h2')||{}).textContent&&String(s.querySelector('h2').textContent).match(/инфра|карт/i));
+ if(target){target.scrollIntoView({behavior:'smooth'})}
+}
 async function chatSend(){
  if(chatSending) return;
  const inp=document.getElementById('chatInput');
  const msg=document.getElementById('chatMsg');
  const text=inp?inp.value.trim():'';
- if(!text) return;
+ const fi=document.getElementById('chatFiles');
+ const files=fi&&fi.files&&fi.files.length?Array.from(fi.files):[];
+ if(!text&&!files.length) return;
  chatSending=true;
  try{
-  await realChatSend(text,inp,msg);
+  await realChatSend(text,inp,msg,files);
  }finally{
   chatSending=false;
  }
 }
-async function realChatSend(text,inp,msg){
+async function realChatSend(text,inp,msg,files){
  if(!chatCurrent) await chatNew();
  if(!chatCurrent){ if(msg) msg.textContent=T.err; return; }
- if(inp) inp.value='';
+ let attachments=[];
+ if(files&&files.length){
+  const fd=new FormData();
+  fd.append('scope',chatCurrent);
+  for(const f of files) fd.append('file',f);
+  try{
+   const up=await fetch('/api/upload',{method:'POST',body:fd});
+   const ud=await up.json();
+   if(!ud.ok){ if(msg) msg.textContent=T.err+(ud.error||''); return; }
+   attachments=(ud.attachments||[]).map(a=>a.path);
+  }catch(e){ if(msg) msg.textContent=T.err+e; return; }
+  const info=document.getElementById('chatFilesInfo');
+  if(info) info.textContent=attachments.length+' файл(ов) прикреплено';
+  if(fi) fi.value='';
+ }
+ if(inp){ inp.value=''; inp.style.height=''; }
  /* вопрос показываем в ленте сразу, не дожидаясь ответа API — так он
     гарантированно попадёт в чат */
  await appendChatNote(text,'user');
+ if(attachments.length) await appendChatNote('[вложения: '+attachments.join(', ')+']','system');
  await openChat(chatCurrent);
  if(msg) msg.textContent=T.chatWait;
-/* вопрос идёт через оркестратора-каскад (серверные ИИ → claude-code →
-     opencode → workai → локальные), а не напрямую в WorkAI: это часть
-     ротации провайдеров, а не единственный канал. При полном провале
-     каскад вернёт отчёт «реши сам или верни задачу». */
-const body={schema:'invr.task/1',goal:text,session:chatCurrent,
+ const body={schema:'invr.task/1',goal:text,session:chatCurrent,
    capabilities:['answer'],
    constraints:{synthesize:false,timeout_s:480},inputs:{provider:'cascade'}};
+ if(attachments.length) body.inputs.attachments=attachments;
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }
@@ -791,15 +866,28 @@ const body={schema:'invr.task/1',goal:text,session:chatCurrent,
  chatRun();
  startChatTimers();
 }
-let jobTimer=null,jobSeq=0,retryCount=0;
+let jobTimer=null,jobSeq=0,retryCount=0,chatUnit=null;
+const JOBUI={id:null,seq:0,started:0,status:'',running:false};
+function clearJobProgress(){
+ if(jobTimer){clearInterval(jobTimer);jobTimer=null}
+ JOBUI.id=null;JOBUI.seq++;JOBUI.status='';JOBUI.running=false;
+}
+function freezeJobTimer(){
+ if(jobTimer){clearInterval(jobTimer);jobTimer=null}
+ JOBUI.running=false;
+ const el=document.querySelector('#chatMsg .jobtimer');
+ if(el) el.textContent=Math.max(0,Math.floor((Date.now()-JOBUI.started)/1000))+' с';
+}
 function showJobProgress(id,goal){
  const box=document.getElementById('chatMsg');
  if(!box) return;
- const seq=++jobSeq;
+ clearJobProgress();
+ JOBUI.id=id;JOBUI.seq++;JOBUI.started=Date.now();JOBUI.status='running';JOBUI.running=true;
+ const seq=jobSeq=JOBUI.seq;
  retryCount=0;
  const started=Date.now();
  const render=async()=>{
-  if(seq!==jobSeq) return;
+  if(seq!==JOBUI.seq) return;
   let jj=null;
   try{const rr=await j('/api/jobs/get?id='+encodeURIComponent(id));jj=rr;}catch(e){}
   if(!jj||jj.error){
@@ -809,7 +897,7 @@ function showJobProgress(id,goal){
   const st=jj.status||'running';
   const step=jj.last_step||(st==='running'?'выполняется…':st);
   if(st==='done'){
-   clearInterval(jobTimer);jobTimer=null;
+   clearInterval(jobTimer);jobTimer=null;JOBUI.running=false;JOBUI.status='done';
    const ans=jj.answer||'(без текста ответа)';
    box.innerHTML='<div class="jobdone">✅ '+esc(ans)+'</div>';
    await openChat(chatCurrent);
@@ -817,7 +905,7 @@ function showJobProgress(id,goal){
    return;
   }
   if(st==='failed'||st==='error'||st==='stopped'){
-   clearInterval(jobTimer);jobTimer=null;
+   clearInterval(jobTimer);jobTimer=null;JOBUI.running=false;JOBUI.status=st;
    const err=jj.error||(st==='stopped'?'остановлена оператором':'задача завершилась с ошибкой');
    box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (jj.answer?'<br><br>'+esc(jj.answer):'')+'</div>';
    await openChat(chatCurrent);
@@ -894,8 +982,15 @@ async function analyzeChatLog(sessionId){
 (function bindChatInput(){
  const inp=document.getElementById('chatInput');
  if(!inp) return;
+ const MAXROWS=5;
+ function autoHeight(){
+  inp.style.height='auto';
+  inp.style.height=Math.min(MAXROWS,inp.scrollHeight?Math.max(2,inp.scrollHeight/18):2)*20+'px';
+ }
+ inp.addEventListener('input',autoHeight);
+ inp.addEventListener('paste',function(){setTimeout(autoHeight,0)});
  inp.addEventListener('keydown',function(e){
-  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();chatSend()}
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();chatSend();setTimeout(autoHeight,0)}
  });
 })();
 async function approveJob(id,ok){
@@ -1057,6 +1152,13 @@ async function loadCatalog(){
   {h:x.ok?T.on:T.off,c:x.ok?'on':'off'}
  ]);
 }
+async function loadCapabilities(){
+ const c=await j('/api/capabilities');
+ const box=document.getElementById('capabilities');
+ const sum=c.summary||{};
+ setTxt(document.getElementById('capsSum'),'MCP: '+sum.mcp+' · Скиллы: '+sum.skills+' · Плагины: '+sum.plugins+' · Субмодели: '+sum.submodels+' · Серверы: '+sum.servers);
+ box.innerHTML='<pre style="max-height:420px;overflow:auto;white-space:pre-wrap">'+esc(c.text||JSON.stringify(c,null,2))+'</pre>';
+}
 async function loadDoctor(){
  const d=await j('/api/doctor');
  const adpts=d.adapters||[], ints=d.integrations||[];
@@ -1203,7 +1305,8 @@ async function shotGraph(){
   if(d.ok){shotMtime=null;loadInfra();}
  }catch(e){ if(msg) msg.textContent=T.infraShotFail+e; }
 }
-load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadDoctor();loadArsenal();loadLogs();
+load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadCapabilities();loadDoctor();loadArsenal();loadLogs();
+dropUpgradeIcon();
 chatTab(localStorage.getItem('factory.view')==='chat'?'chat':'board');
 setInterval(loadJobs,2000);
 setInterval(function(){loadArsenal();loadMonitoring();},5000);
@@ -1272,6 +1375,7 @@ def _page(lang: str) -> str:
         "t_inventory_summary": tr("web.inventory_summary"),
         "t_no_data": tr("web.no_data"),
         "t_catalog": tr("web.catalog"),
+        "t_capabilities": tr("web.capabilities"),
         "t_catalog_empty": tr("web.catalog_empty"),
         "t_doctor": tr("web.doctor"),
         "t_doctor_summary": tr("web.doctor_summary"),
@@ -1305,6 +1409,9 @@ def _page(lang: str) -> str:
         "t_chat_new": tr("web.chat_new"),
         "t_chat_ph": tr("web.chat_ph"),
         "t_chat_send": tr("web.chat_send"),
+        "t_chat_rows": tr("web.chat_rows"),
+        "t_invr_title": tr("web.invr_title"),
+        "t_upgrade_check": tr("web.upgrade_check"),
         "t_chat_del": tr("web.chat_del"),
         "t_chat_up": tr("web.chat_up"),
         "t_chat_down": tr("web.chat_down"),
@@ -1500,6 +1607,17 @@ def _handler_class():
             if path == "/api/catalog":
                 from .. import catalog
                 return self._send(catalog.build(settings))
+            if path == "/api/capabilities":
+                from .. import capabilities
+                data = capabilities.build(settings)
+                data["text"] = capabilities.render_text(data)
+                return self._send(data)
+            if path == "/api/session/context":
+                from ..context import access_summary
+                return self._send(access_summary(settings, root=root))
+            if path == "/api/upgrade":
+                from ..upgrade import check
+                return self._send(check(settings, backup=False))
             if path == "/api/catalog/show":
                 from .. import catalog
                 text = catalog.report(settings, query.get("path", [""])[0])
@@ -1614,6 +1732,12 @@ def _handler_class():
                 _, post_settings, _, _ = build_context()
                 result = infragraph.snapshot(post_settings)
                 return self._send(result, status=200 if result.get("ok") else 400)
+            if path == "/api/upgrade":
+                from ..upgrade import check
+                _, post_settings, _, _ = build_context()
+                result = check(post_settings, backup=bool(data.get("backup")),
+                               items=str(data.get("items") or ""))
+                return self._send(result, status=200 if result.get("ok", True) else 400)
             return self._send({"error": "not found"}, status=404)
 
     return Handler

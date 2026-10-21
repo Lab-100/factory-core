@@ -37,14 +37,30 @@ class InfraIntegration:
     def available(self) -> bool:
         return self.shim() is not None
 
+    def auto_emit(self) -> bool:
+        """Инфограф — только визуализация: по умолчанию НЕ вызывается на
+        каждом запросе (карта потока пишется локально). Включить явно:
+        settings `infra.auto_emit = true` или env INFRAGRAPH_AUTO_EMIT=1."""
+        if str(self.settings.get("infra.auto_emit", False) or "").strip().lower() in ("1", "true", "on", "yes"):
+            return True
+        import os
+        return os.environ.get("INFRAGRAPH_AUTO_EMIT") == "1"
+
     def health(self) -> dict:
         return {"integration": self.name, "available": self.available(),
+                "auto_emit": self.auto_emit(),
                 "shim": str(self.shim()) if self.shim() else None,
                 "sink": "infra-graph" if self.shim() else "local"}
 
     def emit(self, event: dict) -> dict:
         """Записать событие потока: внешний infra-graph или локальный файл."""
         record = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+        if not self.auto_emit():
+            path = self._local_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            return {"ok": True, "sink": "local", "file": f"{path.parent.name}/{path.name}"}
         shim = self.shim()
         if shim is not None:
             try:

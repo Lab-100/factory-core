@@ -182,11 +182,28 @@ class JobManager:
                 job["pending"] = None
                 return decision
 
+            # Автозапуск нужных служб перед задачей: запрос фабрики = приказ
+            # поднять процесс, если он не в строю. Заметки пишем в сессию.
+            session_id = job.get("session")
+            if not job.get("dry_run") and session_id:
+                try:
+                    from .startup import ServiceStarter
+
+                    starter = ServiceStarter(settings, root=_root, ledger=ledger)
+
+                    def _note(text: str) -> None:
+                        self._session_note(job, "система", text)
+
+                    starter.start_if_needed(session_id=session_id, on_note=_note)
+                except Exception:  # noqa: BLE001 — автозапуск не должен ломать задачу
+                    pass
+
             job["status"] = "running"
             job["last_step"] = "запуск…"
             self._persist(job)
-            self._session_note(job, "система", "задача запущена, ждём очередь…",
-                                status="queued")
+            # Стартовую заметку в сессию больше НЕ пишем: прогресс задачи
+            # показывает один банер в чате (JS), а ленте хватает одного
+            # «🔄 …» при фактическом старте шага.
             _noted: set[tuple] = set()
 
             def on_step(step, res, phase) -> None:

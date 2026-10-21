@@ -316,6 +316,56 @@ def _cmd_release(args) -> int:
     return 0
 
 
+def _cmd_backup(args) -> int:
+    """Резервное копирование/откат через backup-утилиту склада INVR."""
+    from .. import backup as backup_mod
+
+    _, settings, _, _ = build_context()
+    if args.action == "list":
+        result = backup_mod.list_(settings)
+    elif args.action == "init":
+        result = backup_mod.init(settings)
+    elif args.action == "undo":
+        result = backup_mod.undo(settings, change_id=args.id or "")
+    else:  # backup
+        files = list(args.files or [])
+        result = backup_mod.backup(settings, files=files, notes=args.notes or "")
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("ok") else 1
+    if result.get("ok"):
+        print(result.get("stdout") or result.get("stderr") or "ok")
+        return 0
+    print(result.get("error") or result.get("stderr") or "ошибка", file=sys.stderr)
+    return 1
+
+
+def _cmd_capabilities(args) -> int:
+    """Выборка возможностей провайдеров (MCP/скиллы/плагины/субмодели/серверы)."""
+    from .. import capabilities as caps
+
+    _, settings, _, _ = build_context()
+    data = caps.build(settings)
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    print(caps.render_text(data))
+    return 0
+
+
+def _cmd_upgrade(args) -> int:
+    """Проверка апгрейда всей системы (фабрика + INVR) с аддитивным бэкапом."""
+    from ..upgrade import check
+
+    _, settings, _, _ = build_context()
+    result = check(settings, backup=args.backup, items=args.items)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("ok", True) else 1
+    print(result.get("text") or json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok", True) else 1
+
+
 def _fmt_num(value) -> str:
     """Число без хвостового .0; None → знак бесконечности."""
     if value is None:
@@ -1216,6 +1266,27 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_netsuite.add_argument("--json", action="store_true",
                             help=t(lang, "arg.netsuite.json"))
     p_netsuite.set_defaults(func=_cmd_netsuite)
+
+    p_backup = sub.add_parser("backup", help=t(lang, "cmd.backup"))
+    p_backup.add_argument("action", nargs="?", default="backup",
+                          choices=["backup", "list", "init", "undo"])
+    p_backup.add_argument("files", nargs="*", default=[], help=t(lang, "arg.backup.files"))
+    p_backup.add_argument("--id", default="", help=t(lang, "arg.backup.id"))
+    p_backup.add_argument("--notes", default="", help=t(lang, "arg.backup.notes"))
+    p_backup.add_argument("--json", action="store_true", help=t(lang, "arg.backup.json"))
+    p_backup.set_defaults(func=_cmd_backup)
+
+    p_capabilities = sub.add_parser("capabilities", help=t(lang, "cmd.capabilities"))
+    p_capabilities.add_argument("--json", action="store_true",
+                                help=t(lang, "arg.capabilities.json"))
+    p_capabilities.set_defaults(func=_cmd_capabilities)
+
+    p_upgrade = sub.add_parser("upgrade", help=t(lang, "cmd.upgrade"))
+    p_upgrade.add_argument("--backup", action="store_true",
+                           help=t(lang, "arg.upgrade.backup"))
+    p_upgrade.add_argument("--items", default="", help=t(lang, "arg.upgrade.items"))
+    p_upgrade.add_argument("--json", action="store_true", help=t(lang, "arg.upgrade.json"))
+    p_upgrade.set_defaults(func=_cmd_upgrade)
 
     return parser
 

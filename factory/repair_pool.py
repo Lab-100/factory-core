@@ -195,12 +195,53 @@ def collect_logs(root: str | Path, job_id: str, session_id: str = "") -> list[st
     return lines[-120:]
 
 
+def _repair_session(root: Path) -> dict:
+    """Получить (создав) ремонтную сессию — отдельную от пользовательского чата.
+
+    Сессия имеет kind='repair': она видна в отдельном разделе «Ремонтные
+    сессии», но не попадает в обычный список чатов. Заголовок — по времени.
+    """
+    from .sessions import SessionStore
+
+    store = SessionStore(root)
+    now = datetime.now().strftime("%d.%m %H:%M")
+    existing = [s for s in store.list(kind="repair")]
+    if existing:
+        # берём самую свежую ремонтную сессию (обычно одна идёт)
+        return store.ensure(existing[0]["id"], title=f"Ремонт {now}", kind="repair")
+    return store.create(title=f"Ремонт {now}", kind="repair")
+
+
+def _note(root: Path, role: str, text: str) -> None:
+    """Записать сообщение в ремонтную сессию (не в пользовательский чат)."""
+    from .sessions import SessionStore
+
+    try:
+        s = _repair_session(root)
+        SessionStore(root).append(s["id"], role, text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def repair(settings=None, *, job_id: str = "", goal: str = "",
            session_id: str = "", error: str = "") -> dict:
-    """Прогнать задачу через ремонтный пул; вернуть {ok, answer, model, action}."""
+    """Прогнать задачу через ремонтный пул; вернуть {ok, answer, model, action}.
+
+    Весь ход ремонта пишется в отдельную ремонтную сессию (kind='repair'),
+    скрытую из обычного списка чатов, но видимую в разделе «Ремонтные сессии».
+    """
     from .paths import repo_root
 
     root = repo_root(settings)
+    store = from_sessions_store(root)
+    repair_ses = _repair_session(root)
+    rsid = repair_ses["id"]
+    store.append(rsid, "system",
+                 f"🔧 ремонт запущен: задача {job_id or '—'}\nзапрос: {goal[:120]}\n"
+                 f"ошибка: {error[:300]}")
+    store.append(rsid, "system", "→ отправлено в ремонтный пул (вдумчивые бесплатные ИИ): "
+                                 "opencode-free, cline-free, koda-desktop, multitool, gordon-docker")
+
     logs = collect_logs(root, job_id, session_id)
     prompt = (
         "Фабрика не смогла ответить на запрос оператора штатным каскадом. "
@@ -220,6 +261,7 @@ def repair(settings=None, *, job_id: str = "", goal: str = "",
             ok, text, model = probe(prompt, timeout)
         except Exception as exc:  # noqa: BLE001
             attempts.append({"pool": name, "ok": False, "error": str(exc)})
+            store.append(rsid, "system", f"  ✗ {name}: {exc}")
             continue
         attempts.append({"pool": name, "ok": ok, "model": model or None})
         if ok:
@@ -229,6 +271,9 @@ def repair(settings=None, *, job_id: str = "", goal: str = "",
                 if line.strip().upper().startswith("ДЕЙСТВИЕ:"):
                     action = line.split(":", 1)[1].strip()[:500]
                     break
+            store.append(rsid, "assistant",
+                         f"✅ ремонт: пул {name} (модель {model or '—'}) дал ответ.\n"
+                         f"ДЕЙСТВИЕ: {action or '—'}\n\n{text[:1500]}")
             return {
                 "ok": True,
                 "answer": text[:4000],
@@ -237,8 +282,135 @@ def repair(settings=None, *, job_id: str = "", goal: str = "",
                 "action": action,
                 "attempts": attempts,
             }
+        store.append(rsid, "system", f"  ✗ {name}: не ответил")
+    store.append(rsid, "system", "❌ ремонтный пул не дал ответа")
     return {"ok": False, "error": "ремонтный пул не дал ответа",
             "attempts": attempts}
+
+
+def from_sessions_store(root: Path):
+    """Кэш SessionStore в рамках модуля (удобно для _repair_session и repair)."""
+    from .sessions import SessionStore
+
+    return SessionStore(root)
+
+
+def _run_tool(argv: list[str], root: Path, timeout: float = 900,
+              env_extra: dict | None = None) -> tuple[int, str]:
+    """Запустить команду (тесты/коммит/пуш/релиз) и вернуть (код, вывод)."""
+    import shutil as _shutil
+
+    env = dict(os.environ)
+    if env_extra:
+        env.update(env_extra)
+    shell = _shutil.which("pwsh") or _shutil.which("powershell")
+    cmd = argv[0]
+    if any(x in argv[0].lower() for x in ("factory", "py", "python")):
+        if _shutil.which(cmd):
+            pass
+    try:
+        proc = subprocess.run(argv, cwd=str(root), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout, env=env)
+        out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+        return proc.returncode, out[-3000:]
+    except subprocess.TimeoutExpired:
+        return -1, f"таймаут {timeout} с"
+    except FileNotFoundError:
+        return -2, f"команда не найдена: {argv[0]}"
+    except Exception as exc:  # noqa: BLE001
+        return -3, str(exc)
+
+
+def _repo_root(root: Path) -> Path:
+    """Корень git-репозитория factory-core (там, где .git рядом)."""
+    for cand in (root.parent.parent, root):
+        if (cand / ".git").exists():
+            return cand
+    return root
+
+
+def run_repair_cycle(settings=None, *, job_id: str = "", goal: str = "",
+                     session_id: str = "", error: str = "",
+                     publish: bool = True) -> dict:
+    """Полный ремонтный цикл: починка + тесты + коммит/пуш (+ релиз).
+
+    Ход пишется в ремонтную сессию (kind='repair'): запуск, перебор пула,
+    найденные дефекты, результат тестов, публикация в GitHub.
+    """
+    from .paths import repo_root
+
+    root = repo_root(settings)
+    store = from_sessions_store(root)
+    repair_ses = _repair_session(root)
+    rsid = repair_ses["id"]
+
+    # 1) Починка через пул вдумчивых ИИ
+    result = repair(settings, job_id=job_id, goal=goal,
+                    session_id=session_id, error=error)
+
+    # 2) Тесты рабочей копии (проверка работоспособности)
+    store.append(rsid, "system", "🧪 запуск тестов (проверка работоспособности)…")
+    repo = _repo_root(root)
+    py = sys.executable
+    rc, out = _run_tool([py, "-m", "unittest", "discover", "-s", "tests"],
+                        repo, timeout=900)
+    defects = []
+    if rc == 0:
+        store.append(rsid, "system", "✅ тесты зелёные.")
+        result["tests"] = {"ok": True, "output": out[-1200:]}
+    else:
+        lines = out.splitlines()
+        defects.append("тесты падают (см. вывод ниже)")
+        store.append(rsid, "system",
+                     f"❌ тесты ПАДАЮТ (код {rc}):\n{out[-1200:]}")
+        result["tests"] = {"ok": False, "output": out[-1200:]}
+        result["defects"] = defects
+
+    # 3) Публикация исправлений (коммит/пуш/релиз), если есть незакоммиченное
+    published = None
+    if publish and repo.exists():
+        gitrc, gitout = _run_tool(["git", "status", "--porcelain"], repo, timeout=60)
+        if gitrc == 0 and gitout.strip():
+            store.append(rsid, "system", "📤 есть незакоммиченные правки — коммичу/пушу.")
+            store.append(rsid, "system", f"изменённые файлы:\n{gitout.strip()[:1500]}")
+            msg = f"factory repair: исправления после отказа задачи {job_id or '—'}"
+            _run_tool(["git", "add", "-A"], repo, timeout=120)
+            rc2, out2 = _run_tool(["git", "commit", "-m", msg], repo, timeout=120)
+            if rc2 == 0:
+                store.append(rsid, "system", f"✅ коммит: {msg}")
+                rc3, out3 = _run_tool(["git", "push", "origin", "main"], repo, timeout=300)
+                if rc3 == 0:
+                    store.append(rsid, "system", "✅ push в origin/main выполнен.")
+                    # Релиз — только если это настоящие исправления фабрики
+                    rc4, out4 = _run_tool(
+                        [py, "-m", "factory", "release"],
+                        repo, timeout=1200,
+                        env_extra={"FACTORY_RELEASE_REPO": "Lab-100/factory-core"})
+                    if rc4 == 0:
+                        store.append(rsid, "system",
+                                     f"🚀 релиз создан:\n{out4[-800:]}")
+                        published = {"release": out4[-800:]}
+                    else:
+                        store.append(rsid, "system",
+                                     f"⚠️ релиз не создан (код {rc4}):\n{out4[-800:]}")
+                        published = {"release_error": out4[-800:]}
+                else:
+                    store.append(rsid, "system", f"⚠️ push не удался:\n{out3[-800:]}")
+            else:
+                store.append(rsid, "system", f"⚠️ коммит не удался:\n{out2[-800:]}")
+        else:
+            store.append(rsid, "system", "ℹ️ нет незакоммиченных правок — публикация не требуется.")
+        result["publish"] = published or {"skipped": True}
+
+    # Итог в ремонтную сессию
+    final = "✅ ремонт завершён" if result.get("ok") else "❌ ремонт не дал ответа"
+    if result.get("answer"):
+        store.append(rsid, "assistant",
+                     f"отчёт: {final}\n\n{result['answer'][:2000]}")
+    else:
+        store.append(rsid, "assistant", f"отчёт: {final}")
+    result["repair_session"] = rsid
+    return result
 
 
 def write_report(root: Path, result: dict) -> Path | None:

@@ -61,34 +61,40 @@ class SessionStore:
 
     # --- операции ---
     def create(self, title: str = "", project: str = "",
-               session_id: str | None = None) -> dict:
+               session_id: str | None = None, kind: str = "chat") -> dict:
         sid = str(session_id) if session_id else "ses" + uuid.uuid4().hex[:12]
         session = {
             "id": sid,
             "title": str(title) or DEFAULT_TITLE,
             "project": str(project) or "",
+            "kind": str(kind or "chat"),
             "created": _now(),
             "updated": _now(),
             "messages": [],
         }
         return self._write(session)
 
-    def ensure(self, session_id: str, title: str = "", project: str = "") -> dict:
+    def ensure(self, session_id: str, title: str = "", project: str = "",
+               kind: str = "chat") -> dict:
         """Вернуть сессию, создав её при отсутствии (для привязки задачи)."""
         return self._read(session_id) or self.create(
-            title=title, project=project, session_id=session_id)
+            title=title, project=project, session_id=session_id, kind=kind)
 
     def get(self, session_id: str) -> dict | None:
         return self._read(str(session_id))
 
-    def list(self) -> list[dict]:
+    def list(self, kind: str | None = None) -> list[dict]:
         if not self.dir.exists():
             return []
         out: list[dict] = []
         for path in self.dir.glob("*.json"):
             data = self._read(path.stem)
-            if data is not None:
-                out.append(self.summary(data))
+            if data is None:
+                continue
+            item_kind = data.get("kind") or "chat"
+            if kind is not None and item_kind != kind:
+                continue
+            out.append(self.summary(data))
         out.sort(key=lambda item: item.get("updated", ""), reverse=True)
         return out
 
@@ -138,6 +144,7 @@ class SessionStore:
             "id": session.get("id"),
             "title": session.get("title", DEFAULT_TITLE),
             "project": session.get("project", ""),
+            "kind": session.get("kind") or "chat",
             "created": session.get("created"),
             "updated": session.get("updated"),
             "count": len(messages),

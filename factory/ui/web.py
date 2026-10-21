@@ -257,6 +257,10 @@ _TEMPLATE = """<!doctype html>
      <span class="hint" id="chatPageInfo">0 / 0</span>
      <button id="chatDown" onclick="chatShift(1)" title="{{t_chat_down}}" aria-label="{{t_chat_down}}">{{t_chat_down}} ↓</button>
     </div>
+    <div class="chatpager" style="flex-direction:column;align-items:stretch;gap:4px">
+     <span class="hint" style="margin-top:6px">🔧 {{t_chat_repair}}</span>
+     <div class="chatitems" id="repairList" style="max-height:180px"></div>
+    </div>
    </aside>
    <div class="chatmain">
     <div class="chathead"><b id="chatTitle">{{t_chat_pick}}</b><span class="hint" id="chatInfo"></span><span class="hint chatrun" id="chatRun"></span></div>
@@ -299,6 +303,7 @@ _TEMPLATE = """<!doctype html>
      <span class="hint" id="chatFilesInfo"></span>
      <button id="chatStreamBtn" onclick="streamToggle()" style="display:none" class="ctlbtn">{{t_chat_stream_show}}</button></div>
     <div id="chatStreamWrap" style="display:none"><pre id="chatStream" style="max-height:160px;overflow:auto;font-size:12px;color:#8b93a7;background:#0b0e13;border:1px solid #262b36;border-radius:8px;padding:8px;margin:4px 0;white-space:pre-wrap"></pre></div>
+    <div id="repairWorkers" style="display:none" class="hint" ></div>
     <div class="hint" id="chatMsg"></div>
    </div>
   </div>
@@ -709,10 +714,23 @@ function renderChats(){
 }
 async function loadChats(){
  const r=await j('/api/sessions');
- chatItems=r.sessions||[];
+ /* в основной список чатов — только обычные сессии (kind=chat);
+    ремонтные скрыты из общего потока, они живут в отдельном разделе */
+ chatItems=(r.sessions||[]).filter(s=>!s.kind||s.kind==='chat');
  const max=Math.max(0,chatItems.length-CHAT_PAGE);
  if(chatOffset>max) chatOffset=max;
  renderChats();
+ loadRepairSessions();
+}
+async function loadRepairSessions(){
+ const r=await j('/api/sessions?kind=repair');
+ const box=document.getElementById('repairList');
+ if(!box) return;
+ const items=r.sessions||[];
+ const named=items.map(s=>'<div class="chatitem"><button class="chatbtn'+(s.id===chatCurrent?' on':'')+
+  '" onclick="openChat(&#39;'+esc(s.id)+'&#39;)" title="ремонт: '+esc(s.title||s.id)+'">🔧 '+esc((s.title||s.id).slice(0,40))+'</button>'+
+  '<button class="chatdel" onclick="delChat(&#39;'+esc(s.id)+'&#39;)" title="удалить">✕</button></div>').join('');
+ box.innerHTML=items.length?named:'<p class="hint">ремонтных сессий нет</p>';
 }
 function chatRun(){
  const el=document.getElementById('chatRun');
@@ -793,8 +811,27 @@ async function chatNew(){
  chatOffset=0;
  await loadChats();
  await openChat(chatCurrent);
+ /* при активном ремонте подскажем, с какой моделью/провайдером общаться сейчас */
+ showRepairWorkers();
  const inp=document.getElementById('chatInput');
  if(inp) inp.focus();
+}
+/* список рабочих моделей/провайдеров на время ремонта (или автовыбор оркестратора) */
+async function showRepairWorkers(){
+ try{
+  const rr=await j('/api/sessions?kind=repair');
+  const hasRepair=(rr.sessions||[]).length>0;
+  const box=document.getElementById('repairWorkers');
+  if(!box) return;
+  if(!hasRepair){box.style.display='none';return}
+  const caps=await j('/api/capabilities');
+  const prov=await j('/api/providers');
+  const models=(caps.submodels||[]).map(sm=>sm.provider+': '+(sm.models||[]).join(', ')).join(' · ');
+  const on=(prov.providers||[]).filter(p=>p.available).map(p=>p.name).join(', ');
+  box.style.display='';
+  box.innerHTML='<span class="hint">🔧 идёт ремонт. Рабочие модели: <b>'+esc(on||models||'—')+'</b> — '+
+   'общение пойдёт через оркестратор (автовыбор) или через выбранный провайдер в панели выше.</span>';
+ }catch(e){}
 }
 async function delChat(id){
  await fetch('/api/sessions/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
@@ -1583,6 +1620,7 @@ def _page(lang: str) -> str:
         "t_chat_model_ph": tr("web.chat_model_ph"),
         "t_chat_stream_show": tr("web.chat_stream_show"),
         "t_chat_resend": tr("web.chat_resend"),
+        "t_chat_repair": tr("web.chat_repair"),
         "t_chat_del": tr("web.chat_del"),
         "t_chat_up": tr("web.chat_up"),
         "t_chat_down": tr("web.chat_down"),
@@ -1838,7 +1876,8 @@ def _handler_class():
                 return self._send({"id": job.get("id"), "stream": stream_path,
                                    "lines": lines[-200:]})
             if path == "/api/sessions":
-                return self._send({"sessions": SessionStore(root).list()})
+                kind = query.get("kind", [""])[0] or None
+                return self._send({"sessions": SessionStore(root).list(kind=kind)})
             if path == "/api/sessions/get":
                 session = SessionStore(root).get(query.get("id", [""])[0])
                 return self._send(session or {"error": "not found"},

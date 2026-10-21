@@ -304,16 +304,16 @@ class JobManager:
 
     def _try_repair(self, job: dict, payload: dict) -> dict:
         """Ремонтный пул: при полном отказе каскада пробуем вдумчивые
-        бесплатные ИИ с приложением логов ошибки. Изолирован: сбой пула
-        не должен ронять задачу сильнее."""
+        бесплатные ИИ с приложением логов ошибки; затем тесты, и при правках —
+        коммит/пуш/релиз. Изолирован: сбой пула не должен ронять задачу."""
         try:
-            from .repair_pool import repair, write_report
+            from .repair_pool import run_repair_cycle, write_report
 
             _root, settings, registry, ledger = build_context()
             self._session_note(job, "система", "🔧 штатный каскад не ответил — "
-                                                "запускаю ремонтный пул…",
+                                               "запускаю ремонтный цикл…",
                                status="start")
-            result = repair(
+            result = run_repair_cycle(
                 settings,
                 job_id=str(job.get("id") or ""),
                 goal=str(job.get("goal") or ""),

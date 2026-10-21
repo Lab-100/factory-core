@@ -61,9 +61,11 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/"
 # остальные звенья при необходимости доследуют последовательно.
 RACE_TIMEOUT_S = float(os.environ.get("CASCADE_RACE_TIMEOUT", "25"))
 # Быстрые headless-звенья, которые опрашиваются ПАРАЛЛЕЛЬНО (первый ответ).
-# Оконные/нестабильные (workai-gui, codex, claude-code) — последовательный
-# фолбэк после гонки.
-RACE_FAST = ("pollinations", "koda", "cline", "multitool", "opencode", "ollama")
+# Медленные (koda/ollama отвечают 40-90 с) из гонки исключены: они идут в
+# параллельный фолбэк уже после быстрых.
+RACE_FAST = ("pollinations", "opencode", "cline", "multitool")
+# Медленные звенья последовательного фолбэка (после быстрых, параллельно):
+FALLBACK_SLOW = ("ollama", "koda")
 # Файл «потока размышлений»: фабрика передаёт путь через CASCADE_STREAM_FILE,
 # мост пишет туда этапы и порции ответа — чат показывает их разворачиваемым
 # блоком, не дожидаясь конца обработки.
@@ -426,12 +428,13 @@ def main() -> int:
     race = [n for n in names if n in RACE_FAST]
     slow = [n for n in names if n not in RACE_FAST]
 
-    # ПАРАЛЛЕЛЬНАЯ ГОНКА быстрых звеньев: первый ответ возвращается сразу.
+    # ПАРАЛЛЕЛЬНАЯ ГОНКА быстрых звеньев: первый хороший ответ возвращается сразу.
     raced: set[str] = set()
     result_done: tuple[str, str] | None = None
     race_deadline = start + RACE_TIMEOUT_S
     workers = max(1, min(len(race), 4))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = {pool.submit(_probe_one, n, prompt, total_deadline): n for n in race}
         for fut in as_completed(futures):
             name, ok, text, err = fut.result()
@@ -442,29 +445,41 @@ def main() -> int:
                 break
             if time.monotonic() >= race_deadline or time.monotonic() >= total_deadline:
                 break
+    finally:
+        # НЕ ждём медленные звенья: отменяем незавершённые футуры и сразу
+        # выходим из пула (иначе ответ задерживался на самых медленных).
+        for fut in futures:
+            fut.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
     if result_done:
         _finish_done(result_done[0], result_done[1], prompt, pid, utc_start, start)
         return 0
-    _stream("[race] быстрые звенья не ответили в срок, пробую последовательно")
+    _stream("[race] быстрые звенья не ответили в срок, пробую медленные параллельно")
 
-    # ПОСЛЕДОВАТЕЛЬНЫЙ ФОЛБЭК: медленные/оконные звенья + добиваем быстрые,
-    # которые не успели в гонке.
-    remaining = [n for n in names if n not in raced or not attempts or True]
-    for name in remaining:
-        if name in raced:
-            continue
-        if time.monotonic() >= total_deadline:
-            attempts.append((name, "бюджет каскада исчерпан"))
-            break
-        fn = CASCADES.get(name)
-        if not fn:
-            attempts.append((name, "неизвестен"))
-            continue
-        rname, ok, text, err = _probe_one(name, prompt, total_deadline)
-        attempts.append((rname, err))
-        if ok:
-            _finish_done(rname, text, prompt, pid, utc_start, start)
-            return 0
+    # ПАРАЛЛЕЛЬНЫЙ ФОЛБЭК по медленным звеньям (ollama/koda и оконные):
+    # стартуем одновременно, первый хороший ответ возвращаем сразу.
+    slow_names = [n for n in names if n not in raced and n in FALLBACK_SLOW]
+    slow_rest = [n for n in names if n not in raced and n not in FALLBACK_SLOW]
+    todo = slow_names + slow_rest
+    if todo:
+        pool2 = ThreadPoolExecutor(max_workers=min(len(todo), 3))
+        try:
+            futures2 = {pool2.submit(_probe_one, n, prompt, total_deadline): n for n in todo}
+            for fut in as_completed(futures2):
+                name, ok, text, err = fut.result()
+                attempts.append((name, err))
+                if ok:
+                    result_done = (name, text)
+                    break
+                if time.monotonic() >= total_deadline:
+                    break
+        finally:
+            for fut in futures2:
+                fut.cancel()
+            pool2.shutdown(wait=False, cancel_futures=True)
+    if result_done:
+        _finish_done(result_done[0], result_done[1], prompt, pid, utc_start, start)
+        return 0
 
     dur_ms = int((time.monotonic() - start) * 1000)
     msg = f"каскад: все исполнители не дали ответа ({order})"

@@ -1818,7 +1818,7 @@ def _handler_class():
                 job = _jobs().get(query.get("id", [""])[0])
                 if job is None:
                     return self._send({"error": "not found"}, status=404)
-                return self._send(job)
+                return self._send({**job, **_jobs().summary(job)})
             if path == "/api/jobs/stream":
                 job = _jobs().get(query.get("id", [""])[0])
                 if job is None:

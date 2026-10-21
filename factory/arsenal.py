@@ -112,6 +112,43 @@ DEFAULT_SERVICES: dict[str, dict] = {
         "tags": ["supervision"],
         "docker": False,
     },
+    # Службы ИИ-контура: их поднимает и держит супервизор фабрики.
+    # Команды запуска задаются в config/settings.toml ([services.*]) — там
+    # переносимые пути через %USERPROFILE%, без персональных абсолютных путей.
+    "multitool": {
+        "title": "MultiTool (агрегатор бесплатных моделей)",
+        "kind": "http",
+        "url": "http://127.0.0.1:8799/health",
+        "owner": "factory",
+        "enabled": True,
+        "start": [],
+        "stop": [],
+        "tags": ["llm", "mcp"],
+        "docker": False,
+    },
+    "litellm": {
+        "title": "AI Gateway (шлюз пулов моделей LiteLLM)",
+        "kind": "http",
+        "url": "http://127.0.0.1:4000/health/liveliness",
+        "owner": "factory",
+        "enabled": True,
+        "start": [],
+        "stop": [],
+        "tags": ["llm", "gateway"],
+        "docker": False,
+    },
+    "tor": {
+        "title": "Tor (SOCKS 9050 для onion-MCP)",
+        "kind": "tcp",
+        "host": "127.0.0.1",
+        "port": 9050,
+        "owner": "factory",
+        "enabled": True,
+        "start": [],
+        "stop": [],
+        "tags": ["tor", "onion"],
+        "docker": False,
+    },
     # Исключено — проект без Docker. Показываются как «unloaded», не как сбой.
     "docker": {
         "title": "Docker Desktop (исключён)",

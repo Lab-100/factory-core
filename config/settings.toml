@@ -164,7 +164,7 @@ path = "state/arsenal.json"
 
 
 [services.webchat]
-title = "webchat (brauzernye chaty): lokalnyj HTTP-demon browser-chats"
+title = "webchat (браузерные чаты): локальный HTTP-демон browser-chats"
 kind = "http"
 url = "http://127.0.0.1:8120/api/health"
 owner = "factory"
@@ -172,6 +172,44 @@ enabled = true
 start = ["python", "browser-chats/webchat_service.py"]
 stop = []
 tags = ["chat", "browser"]
+
+# ── Службы ИИ-контура под супервизией фабрики ──────────────────────────
+# Пути переносимые: %USERPROFILE% раскрывает супервизор при запуске.
+# (Персональные абсолютные пути в публикуемом репозитории недопустимы.)
+
+[services.multitool]
+# Агрегатор бесплатных моделей (OpenAI-совместимый, порт 8799).
+title = "multitool (агрегатор бесплатных моделей)"
+kind = "http"
+url = "http://127.0.0.1:8799/health"
+owner = "factory"
+enabled = true
+start = ["node", "%USERPROFILE%\\.config\\opencode\\mcp\\multitool\\server.mjs"]
+stop = []
+tags = ["llm", "mcp"]
+
+[services.litellm]
+# Шлюз ai-gateway/LiteLLM: сетевой слой 8898 + восемь пулов llm-* на 4000.
+title = "AI Gateway (шлюз пулов моделей LiteLLM)"
+kind = "http"
+url = "http://127.0.0.1:4000/health/liveliness"
+owner = "factory"
+enabled = true
+start = ["pwsh", "-NoProfile", "-WindowStyle", "Hidden", "-File", "%USERPROFILE%\\Documents\\Lab-100\\ai-gateway\\start-all.ps1"]
+stop = []
+tags = ["llm", "gateway"]
+
+[services.tor]
+# Демон Tor для onion-MCP: SOCKS 9050, Control 9051 (cookie-аутентификация).
+title = "Tor (SOCKS 9050 для onion-MCP)"
+kind = "tcp"
+host = "127.0.0.1"
+port = 9050
+owner = "factory"
+enabled = true
+start = ["pwsh", "-NoProfile", "-File", "%USERPROFILE%\\.config\\opencode\\mcp\\onion\\start-tor.ps1"]
+stop = []
+tags = ["tor", "onion"]
 [providers]
 # Переключатель внешних ИИ: встроенные бесплатные ассистенты сред разработки.
 # Список и состояние: `factory providers list`; включить: `factory providers

@@ -221,6 +221,27 @@ python -m factory providers               # unitool в каталоге пров
 Маршрутизация компетенции на unitool включается одной строкой в `[routing]`,
 например `answer = "unitool"` или `web-search = "unitool:search"`.
 
+## Супервизия ИИ-контура
+
+Фабрика не только вызывает инструменты — она поднимает и держит службы, на
+которых они стоят. В арсенале (`factory/arsenal.py`) описаны:
+
+| Служба | Проверка | Что это |
+|---|---|---|
+| `multitool` | HTTP `127.0.0.1:8799/health` | агрегатор бесплатных моделей |
+| `litellm` | HTTP `127.0.0.1:4000/health/liveliness` | шлюз ai-gateway/LiteLLM (пулы `llm-*`) |
+| `tor` | TCP `127.0.0.1:9050` | демон Tor для onion-MCP |
+
+Все три — с `owner = "factory"`: супервизор фабрики может их поднять сам.
+Команды запуска задаются в `config/settings.toml` (`[services.*]`) переносимо,
+через `%USERPROFILE%` — супервизор раскрывает переменные окружения и `~` перед
+запуском (`factory/supervisor.py`, `_expand_command`).
+
+```powershell
+python -m factory arsenal          # состояние служб
+python -m factory supervise --once # одна итерация наблюдения и починки
+```
+
 ## Инвентаризация, квоты, супервизия и единый журнал
 
 Полнота фабрики по дорожной карте (см. [`docs/ROADMAP.md`](docs/ROADMAP.md)):

@@ -1,13 +1,14 @@
 """Тесты супервизора арсенала: режимы, право управления, действия."""
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from factory.settings import Settings
-from factory.supervisor import Supervisor
+from factory.supervisor import Supervisor, _expand_command
 
 
 class SupervisorTest(unittest.TestCase):
@@ -97,6 +98,14 @@ class SupervisorTest(unittest.TestCase):
         ok = Supervisor._exec([sys.executable, "--version"], timeout=30,
                               background=False, label="x")
         self.assertTrue(ok["ok"])
+
+    def test_command_expands_environment_and_home(self) -> None:
+        """Команды запуска служб раскрывают %VAR% и «~» (переносимые пути)."""
+        os.environ["UNITOOL_TEST_DIR"] = r"C:\some\dir"
+        expanded = _expand_command(["node", "%UNITOOL_TEST_DIR%\\server.mjs", "~\\x"])
+        self.assertEqual(expanded[1], r"C:\some\dir\server.mjs")
+        self.assertNotIn("~", expanded[2])
+        self.assertTrue(expanded[2].endswith("x"))
 
 
 if __name__ == "__main__":

@@ -148,5 +148,39 @@ class ArsenalTest(unittest.TestCase):
             self.assertTrue(callable(getattr(args, "func", None)))
 
 
+class AiServicesTest(unittest.TestCase):
+    """Службы ИИ-контура (multitool, litellm, tor) — под супервизией фабрики."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "config").mkdir()
+        (root / "config" / "settings.toml").write_text("", encoding="utf-8")
+        self.settings = Settings(root / "config" / "settings.toml", {})
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_ai_services_are_factory_owned(self) -> None:
+        services = arsenal._resolve_services(self.settings)
+        for name in ("multitool", "litellm", "tor"):
+            self.assertIn(name, services)
+            self.assertEqual(services[name]["owner"], "factory")
+            self.assertTrue(services[name]["enabled"])
+            self.assertFalse(services[name].get("docker", False))
+
+    def test_ai_services_have_probe_points(self) -> None:
+        services = arsenal._resolve_services(self.settings)
+        self.assertEqual(services["multitool"]["url"], "http://127.0.0.1:8799/health")
+        self.assertEqual(services["litellm"]["url"], "http://127.0.0.1:4000/health/liveliness")
+        self.assertEqual(services["tor"]["port"], 9050)
+
+    def test_ai_services_present_in_arsenal(self) -> None:
+        elements = arsenal._service_elements(self.settings)
+        ids = {item["id"] for item in elements}
+        for name in ("multitool", "litellm", "tor"):
+            self.assertIn(f"service:{name}", ids)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -34,6 +35,16 @@ MODES = ("attached", "standalone")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _expand_command(command: list) -> list:
+    """Раскрыть переменные окружения и «~» в аргументах команды.
+
+    Нужно, чтобы команды запуска служб можно было задавать в настройках
+    переносимо — ``%USERPROFILE%\\.config\\opencode\\...`` — без персональных
+    абсолютных путей в публикуемом репозитории.
+    """
+    return [os.path.expandvars(os.path.expanduser(str(arg))) for arg in command]
 
 
 class Supervisor:
@@ -222,6 +233,7 @@ class Supervisor:
     def _exec(command: list, *, timeout: float, background: bool, label: str) -> dict:
         if not command:
             return {"label": label, "ok": False, "detail": "команда не задана"}
+        command = _expand_command(command)
         try:
             if background:
                 flags = 0

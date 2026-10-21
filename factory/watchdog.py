@@ -126,7 +126,10 @@ class Watchdog:
             subprocess.run(["taskkill", "/IM", "WorkAI.exe", "/T", "/F"],
                            capture_output=True, timeout=15)
         except Exception:  # noqa: BLE001
-            return []
+            # Команда закрытия может отсутствовать (не Windows) или не сработать.
+            # Маркер снимаем в любом случае: он означает «мост простаивает», и
+            # иначе супервизор повторял бы попытку бесконечно.
+            pass
         try:
             marker.unlink()
         except OSError:

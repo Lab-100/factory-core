@@ -89,6 +89,8 @@ class GuardTest(unittest.TestCase):
         self.assertFalse(guard.acquire(), "после падения держателя мьютекс свободен")
         guard.release()
 
+    @unittest.skipUnless(sys.platform == "win32",
+                         "реентрабельность именованного мьютекса — свойство Windows")
     def test_second_guard_in_same_process_is_reentrant(self) -> None:
         # Мьютекс Windows реентерабельный: тот же поток входит повторно.
         # Разные экземпляры приложения — это разные процессы (см. тесты выше).

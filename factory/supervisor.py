@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -32,6 +33,9 @@ from .paths import repo_root
 
 MODES = ("attached", "standalone")
 
+# Переменная окружения в форме %VAR% — раскрывается на любой платформе.
+_WIN_VAR = re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -42,9 +46,15 @@ def _expand_command(command: list) -> list:
 
     Нужно, чтобы команды запуска служб можно было задавать в настройках
     переносимо — ``%USERPROFILE%\\.config\\opencode\\...`` — без персональных
-    абсолютных путей в публикуемом репозитории.
+    абсолютных путей в публикуемом репозитории. Поддерживаются обе формы:
+    ``%VAR%`` (Windows; работает и на POSIX) и ``$VAR``/``${VAR}`` (POSIX).
     """
-    return [os.path.expandvars(os.path.expanduser(str(arg))) for arg in command]
+    out: list[str] = []
+    for arg in command:
+        text = os.path.expanduser(str(arg))
+        text = _WIN_VAR.sub(lambda m: os.environ.get(m.group(1), m.group(0)), text)
+        out.append(os.path.expandvars(text))
+    return out
 
 
 class Supervisor:

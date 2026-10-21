@@ -123,7 +123,21 @@ class ExternalAgentAdapter(Adapter):
         # Синтез: опросить несколько исполнителей параллельно и свести ответы оркестратором.
         synth_timeout = int(params.get("synth_timeout_s", 60))
         names = [p["name"] for p in providers.enabled(self.settings)]
-        wanted = int(params.get("synthesize_count", 3))
+        # число участников/раундов — из параметров задачи или настроек фабрики
+        _syn_settings = self.settings.get("synth") or {} if self.settings is not None else {}
+        if isinstance(_syn_settings, dict):
+            _syn_default_count = _syn_settings.get("count")
+            _syn_default_rounds = _syn_settings.get("rounds")
+        else:
+            _syn_default_count = _syn_default_rounds = None
+        try:
+            wanted = int(params.get("synthesize_count", _syn_default_count or 3))
+        except (TypeError, ValueError):
+            wanted = 3
+        try:
+            max_synth_rounds = int(params.get("synth_rounds", _syn_default_rounds or 3))
+        except (TypeError, ValueError):
+            max_synth_rounds = 3
         answers: dict[str, str] = {}
         tried = 0
 
@@ -133,11 +147,26 @@ class ExternalAgentAdapter(Adapter):
             p_arg = bool(p_provider.get("prompt_arg")) if p_provider else False
             for cmd in providers.run_commands(self.settings, pname):
                 rc, raw = self._execute(cmd, prompt, p_arg, synth_timeout, stream_file)
-                if rc == 0:
-                    content = (providers.extract_cline_text(raw)
-                               if pname == "cline" else raw.strip())
-                    if content:
-                        return pname, content[:3000]
+                if rc != 0:
+                    # рассуждения/ошибку провайдера выводим в поток размышлений
+                    if stream_file:
+                        try:
+                            with open(stream_file, "a", encoding="utf-8") as _fh:
+                                _fh.write(f"[{pname}] сбой: {(raw or '')[:300]}\n")
+                        except OSError:
+                            pass
+                    continue
+                content = (providers.extract_cline_text(raw)
+                           if pname == "cline" else raw.strip())
+                # рассуждения модели выводим в поток размышлений (чат показывает)
+                if content and stream_file:
+                    try:
+                        with open(stream_file, "a", encoding="utf-8") as _fh:
+                            _fh.write(f"[{pname}] рассуждения:\n{content[:1500]}\n\n")
+                    except OSError:
+                        pass
+                if content:
+                    return pname, content[:3000]
             return None
 
         with ThreadPoolExecutor(max_workers=max(2, min(4, len(names)))) as pool:
@@ -165,7 +194,7 @@ class ExternalAgentAdapter(Adapter):
             f"{prompt}\n\n{parts}"
         )
         orchestrator = variants[0]
-        max_rounds = int(params.get("synth_rounds", 3))
+        max_rounds = max_synth_rounds
 
         def _assess(text: str) -> str:
             """Оценка ответа: 'ok' | 'weak' | 'bad' по содержанию."""

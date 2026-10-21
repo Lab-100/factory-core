@@ -90,18 +90,19 @@ class RatingsStore:
             "reliability": self.reliability(p),
         } for p, d in self.data.items()}
 
-    def reliability(self, provider: str, capability: str = "") -> float:
+    def reliability(self, provider: str, capability: str = "",
+                   neutral: float = NEUTRAL_RATE, min_samples: int = MIN_SAMPLES) -> float:
         d = self.data.get(provider)
         if not d:
-            return NEUTRAL_RATE
+            return neutral
         n = int(d.get("n", 0) or 0)
         ok = int(d.get("ok", 0) or 0)
         if n <= 0:
-            return NEUTRAL_RATE
+            return neutral
         rate = ok / float(n)
-        if n < MIN_SAMPLES:
+        if n < min_samples:
             # прижимаем к нейтральной оценке (нет уверенности)
-            rate = NEUTRAL_RATE + (rate - NEUTRAL_RATE) * (n / float(MIN_SAMPLES))
+            rate = neutral + (rate - neutral) * (n / float(min_samples))
         if capability:
             spec = d.get("spec") or {}
             s = spec.get(capability) or {}
@@ -144,13 +145,37 @@ def store_for(settings) -> RatingsStore:
     return RatingsStore(path)
 
 
-def _score(provider: str, cap: str, store: RatingsStore, quotas_snapshot=None) -> float:
+def _weights(settings) -> dict:
+    """Веса факторов рейтинга из настроек фабрики [ratings] (иначе умолчания)."""
+    w = {
+        "rate": W_RATE,
+        "speed": W_SPEED,
+        "spec": W_SPEC,
+        "min_samples": MIN_SAMPLES,
+        "neutral": NEUTRAL_RATE,
+    }
+    if settings is not None:
+        cfg = settings.get("ratings") or {}
+        if isinstance(cfg, dict):
+            for k, default in w.items():
+                v = cfg.get(k)
+                if v is not None:
+                    try:
+                        w[k] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+    return w
+
+
+def _score(provider: str, cap: str, store: RatingsStore, settings=None,
+           quotas_snapshot=None) -> float:
     """Итоговая оценка провайдера для выбора (0..1+)."""
-    rate = store.reliability(provider, cap)
+    w = _weights(settings)
+    rate = store.reliability(provider, cap, neutral=w["neutral"], min_samples=w["min_samples"])
     avg = store.avg_ms(provider)
     # скорость: 1000мс -> награда 1, 30000мс -> ~0.3
     speed = 1.0 if avg <= 0 else max(0.1, min(1.0, 2000.0 / (avg + 2000.0)))
-    score = W_RATE * rate + W_SPEED * speed
+    score = w["rate"] * rate + w["speed"] * speed
     # специализация уже вошла через reliability(cap); добавляем бонус за свежесть работы
     if quotas_snapshot:
         q = quotas_snapshot.get(provider) or {}
@@ -174,7 +199,7 @@ def pick(settings, capability: str, providers: list[dict], quotas_snapshot=None)
         name = str(p.get("name") or "")
         if not name:
             continue
-        s = _score(name, capability, store, quotas_snapshot)
+        s = _score(name, capability, store, settings, quotas_snapshot)
         if s > best_score:
             best_score = s
             best = p

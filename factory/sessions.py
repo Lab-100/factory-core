@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCHEMA = "invr.session/1"
@@ -25,6 +25,20 @@ DEFAULT_TITLE = "Новая сессия"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _bump(stamp: str) -> str:
+    """Метка времени на одну микросекунду позже прежней.
+
+    Системные часы Windows идут крупным шагом (~15 мс), и две записи подряд
+    могли получить одинаковую метку — порядок списка сессий становился
+    случайным. Сдвиг на микросекунду сохраняет порядок однозначным.
+    """
+    try:
+        value = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        return stamp
+    return (value + timedelta(microseconds=1)).isoformat()
 
 
 class SessionStore:
@@ -55,6 +69,12 @@ class SessionStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         session["schema"] = SCHEMA
         session["updated"] = _now()
+        # Метка обновления строго возрастает — иначе при крупном шаге часов
+        # порядок списка сессий (сортировка по updated) был бы случайным.
+        previous = self._read(str(session["id"])) or {}
+        earlier = str(previous.get("updated") or "")
+        if earlier and str(session["updated"]) <= earlier:
+            session["updated"] = _bump(earlier)
         self._path(session["id"]).write_text(
             json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
         return session

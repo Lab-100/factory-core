@@ -55,6 +55,20 @@ DEBUG = os.environ.get("CASCADE_DEBUG") == "1"
 TIMEOUT_S = int(os.environ.get("CASCADE_TIMEOUT", "180"))
 MAX_TOTAL_S = int(os.environ.get("CASCADE_MAX_TOTAL", "150"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+# Файл «потока размышлений»: фабрика передаёт путь через CASCADE_STREAM_FILE,
+# мост пишет туда этапы и порции ответа — чат показывает их разворачиваемым
+# блоком, не дожидаясь конца обработки.
+STREAM_FILE = os.environ.get("CASCADE_STREAM_FILE", "").strip()
+
+
+def _stream(line: str) -> None:
+    if not STREAM_FILE:
+        return
+    try:
+        with open(STREAM_FILE, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass
 
 
 def _bad(text: str) -> bool:
@@ -350,6 +364,7 @@ def main() -> int:
     total_deadline = start + MAX_TOTAL_S
     attempts: list[tuple[str, str]] = []
     log(f"=== КАСКАД старт order={order} prompt={prompt[:60]!r} max_total={MAX_TOTAL_S}s ===")
+    _stream(f"[start] каскад запущен, порядок: {order}")
 
     for name in (n.strip() for n in order.split(",") if n.strip()):
         if time.monotonic() >= total_deadline:
@@ -363,6 +378,7 @@ def main() -> int:
             continue
         t = time.monotonic()
         log(f"каскад: пробую {name} ...")
+        _stream(f"[try] пробую {name} …")
         try:
             ok, text, err = fn(prompt)
         except Exception as exc:  # noqa: BLE001
@@ -370,11 +386,16 @@ def main() -> int:
         dt_ms = int((time.monotonic() - t) * 1000)
         if ok:
             log(f"каскад: {name} ОК ({len(text)} симв., {dt_ms}ms)")
+            _stream(f"[ok] {name} ответил ({len(text)} симв., {dt_ms}ms)")
+            if len(text) > 400:
+                for i in range(0, len(text), 400):
+                    _stream(f"[chunk] {text[i:i+400]}")
             _answer_file("DONE", name, prompt, text, dt_ms, None, pid, utc_start)
             sys.stdout.write(text)
             sys.stdout.flush()
             return 0
         log(f"каскад: {name} отказ ({dt_ms}ms): {err}", "WARN")
+        _stream(f"[fail] {name}: {err}")
         attempts.append((name, err or "нет ответа"))
 
     dur_ms = int((time.monotonic() - start) * 1000)

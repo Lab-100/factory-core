@@ -131,6 +131,15 @@ class Dispatcher:
                 to = task.constraints.get("timeout_s")
                 if to:
                     params["timeout_s"] = int(to)
+                # модель/характер из входа задачи (из чата)
+                model = str(task.inputs.get("model") or "").strip()
+                if model:
+                    params["model"] = model
+                # файл «потока размышлений» — каскад пишет туда порции,
+                # чат показывает их разворачиваемым блоком
+                stream = str(task.inputs.get("stream_file") or "").strip()
+                if stream:
+                    params["stream_file"] = stream
                 if (cap == "answer"
                         and task.constraints.get("synthesize", True)):
                     params["synthesize"] = True

@@ -13,3 +13,6 @@ dist/
 .pytest_cache/
 .idea/
 .vscode/
+
+factory/adapters/logs/
+

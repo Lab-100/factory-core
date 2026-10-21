@@ -54,13 +54,21 @@ class ExternalAgentAdapter(Adapter):
         return {}
 
     @staticmethod
-    def _execute(command: list, prompt: str, prompt_arg: bool, timeout: int) -> tuple[int, str]:
+    def _execute(command: list, prompt: str, prompt_arg: bool, timeout: int,
+                 stream_file: str = "") -> tuple[int, str]:
         cmd = [*command, prompt] if prompt_arg else command
         try:
             kwargs: dict = {"capture_output": True, "text": True,
                             "timeout": timeout, "encoding": "utf-8",
                             "errors": "replace"}
             kwargs.update(ExternalAgentAdapter._popen_kwargs())
+            # поток размышлений: путь к файлу порций передаётся мосту каскадом
+            # через env (CASCADE_STREAM_FILE), чтобы чат показывал прогресс.
+            if stream_file:
+                import os as _os
+                env = dict(_os.environ)
+                env["CASCADE_STREAM_FILE"] = stream_file
+                kwargs["env"] = env
             if prompt_arg:
                 proc = subprocess.run(cmd, **kwargs)
             else:
@@ -90,10 +98,13 @@ class ExternalAgentAdapter(Adapter):
                               error="команда провайдера не найдена")
         timeout = int(params.get("timeout_s", 180))
         prompt_arg = bool(provider.get("prompt_arg"))
+        # Файл «потока размышлений»: каскад пишет туда порции/этапы, чат
+        # показывает их разворачиваемым блоком, не дожидаясь конца обработки.
+        stream_file = str(params.get("stream_file") or "").strip()
 
         if not synthesize:
             return self._run_single(provider["name"], variants, prompt,
-                                    prompt_arg, timeout, action)
+                                    prompt_arg, timeout, action, stream_file)
         # Синтез: опросить несколько исполнителей параллельно и свести ответы оркестратором.
         synth_timeout = int(params.get("synth_timeout_s", 60))
         names = [p["name"] for p in providers.enabled(self.settings)]
@@ -106,7 +117,7 @@ class ExternalAgentAdapter(Adapter):
                                if p["name"] == pname), None)
             p_arg = bool(p_provider.get("prompt_arg")) if p_provider else False
             for cmd in providers.run_commands(self.settings, pname):
-                rc, raw = self._execute(cmd, prompt, p_arg, synth_timeout)
+                rc, raw = self._execute(cmd, prompt, p_arg, synth_timeout, stream_file)
                 if rc == 0:
                     content = (providers.extract_cline_text(raw)
                                if pname == "cline" else raw.strip())
@@ -156,13 +167,14 @@ class ExternalAgentAdapter(Adapter):
                            "content": content[:4000], "tried": tried})
 
     def _run_single(self, pname: str, variants: list, prompt: str,
-                    prompt_arg: bool, timeout: int, action: str) -> StepResult:
+                    prompt_arg: bool, timeout: int, action: str,
+                    stream_file: str = "") -> StepResult:
         last_error = ""
         last_code = None
         tried = 0
         for command in variants:
             tried += 1
-            rc, raw = self._execute(command, prompt, prompt_arg, timeout)
+            rc, raw = self._execute(command, prompt, prompt_arg, timeout, stream_file)
             if rc == 0:
                 content = (providers.extract_cline_text(raw)
                            if pname == "cline" else raw.strip())

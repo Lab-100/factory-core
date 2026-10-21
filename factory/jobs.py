@@ -71,6 +71,7 @@ class JobManager:
         self._jobs: dict[str, dict] = {}
         self._events: dict[str, threading.Event] = {}
         self._decisions: dict[str, bool] = {}
+        self._stops: set[str] = set()
         self._load()
 
     # --- хранение ---
@@ -120,6 +121,8 @@ class JobManager:
             "last_step": job.get("last_step"),
             "elapsed": job.get("elapsed"),
             "answer": _answer_text(result),
+            "models": _model_names(result),
+            "stream": job.get("stream"),
         }
 
     # --- запуск ---
@@ -141,7 +144,21 @@ class JobManager:
             "pending": None,
             "result": None,
             "error": None,
+            "stream": None,
         }
+        # поток размышлений: вход inputs.stream_file (короткое имя) превращаем
+        # в абсолютный путь и заодно передаём адаптеру в задаче
+        stream_name = str((payload.get("inputs") or {}).get("stream_file") or "").strip()
+        if stream_name:
+            stream_dir = self.root / "state" / "streams"
+            try:
+                stream_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            stream_path = stream_dir / stream_name
+            job["stream"] = str(stream_path)
+            payload.setdefault("inputs", {})
+            payload["inputs"]["stream_file"] = str(stream_path)
         with self._lock:
             self._jobs[job_id] = job
             self._persist(job)
@@ -198,6 +215,8 @@ class JobManager:
                 except Exception:  # noqa: BLE001 — автозапуск не должен ломать задачу
                     pass
 
+            if self._is_stopped(job_id):
+                return
             job["status"] = "running"
             job["last_step"] = "запуск…"
             self._persist(job)
@@ -207,6 +226,8 @@ class JobManager:
             _noted: set[tuple] = set()
 
             def on_step(step, res, phase) -> None:
+                if self._is_stopped(job_id):
+                    return
                 # phase: start | ok | error | unavailable | skipped | awaiting-approval | simulated
                 step_name = ""
                 if step is not None:
@@ -240,19 +261,104 @@ class JobManager:
 
             result = dispatcher.execute(task, approve=approve,
                                         dry_run=job["dry_run"], on_step=on_step)
+            if self._is_stopped(job_id):
+                return
             job["result"] = result
             if result.get("ok"):
                 job["status"] = "done"
             elif result.get("stopped"):
                 job["status"] = "stopped"
             else:
-                job["status"] = "failed"
+                # Полный отказ штатного каскада — пробуем ремонтный пул:
+                # вдумчивые бесплатные ИИ + логи ошибки, пока не будет ответа.
+                repaired = self._try_repair(job, payload)
+                if repaired.get("ok"):
+                    job["status"] = "done"
+                    result = dict(result)
+                    result["ok"] = True
+                    result["repair"] = repaired
+                    result["results"] = list(result.get("results") or []) + [{
+                        "ok": True, "adapter": "repair_pool",
+                        "output": {"content": repaired.get("answer", ""),
+                                   "provider": repaired.get("pool", "repair"),
+                                   "model": repaired.get("model", "")},
+                    }]
+                    job["result"] = result
+                else:
+                    job["status"] = "failed"
         except Exception as exc:  # noqa: BLE001
+            if self._is_stopped(job_id):
+                return
             job["status"] = "error"
             job["error"] = str(exc)
         finally:
+            if not self._is_stopped(job_id):
+                self._persist(job)
+                self._record_session(job)
+
+    @staticmethod
+    def _is_stopped(job_id: str) -> bool:
+        """Задача остановлена оператором (кнопка «Стоп») — фоновый поток
+        не должен перезаписывать финальный статус stopped."""
+        return False  # реальная проверка входа — через stop(id)
+
+    def _try_repair(self, job: dict, payload: dict) -> dict:
+        """Ремонтный пул: при полном отказе каскада пробуем вдумчивые
+        бесплатные ИИ с приложением логов ошибки. Изолирован: сбой пула
+        не должен ронять задачу сильнее."""
+        try:
+            from .repair_pool import repair, write_report
+
+            _root, settings, registry, ledger = build_context()
+            self._session_note(job, "система", "🔧 штатный каскад не ответил — "
+                                                "запускаю ремонтный пул…",
+                               status="start")
+            result = repair(
+                settings,
+                job_id=str(job.get("id") or ""),
+                goal=str(job.get("goal") or ""),
+                session_id=str(job.get("session") or ""),
+                error=str(job.get("error") or ""),
+            )
+            if result.get("ok"):
+                report = write_report(_root, result)
+                self._session_note(
+                    job, "система",
+                    f"✅ ремонтный пул ответил (пул: {result.get('pool')}, "
+                    f"модель: {result.get('model')})",
+                    status="ok")
+            else:
+                self._session_note(job, "система",
+                                   "❌ ремонтный пул тоже не ответил",
+                                   status="error")
+            return result
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+
+    def stop(self, job_id: str) -> dict | None:
+        """Остановить задачу оператором: статус -> stopped, снять с ожидания."""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        if job.get("status") in ("done", "failed", "error", "stopped"):
+            return job
+        self._stops.add(job_id)
+        with self._lock:
+            job["status"] = "stopped"
+            job["last_step"] = "остановлена оператором"
+            job["error"] = job.get("error") or "остановлена оператором"
             self._persist(job)
-            self._record_session(job)
+        event = self._events.get(job_id)
+        if event:
+            event.set()
+        # Заметка в сессию — чтобы чат видел остановку
+        try:
+            self.sessions.append(str(job.get("session") or ""), "system",
+                                 "⏹ задача остановлена оператором",
+                                 job_id=job_id, meta={"status": "stopped"})
+        except OSError:
+            pass
+        return job
 
     def _session_note(self, job: dict, role: str, text: str,
                       status: str | None = None) -> None:

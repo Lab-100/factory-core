@@ -265,9 +265,40 @@ _TEMPLATE = """<!doctype html>
      <textarea id="chatInput" rows="1" placeholder="{{t_chat_ph}}" autocomplete="off" style="resize:none;overflow-y:auto"></textarea>
      <button onclick="chatToggleRows()" id="chatRowsBtn" title="{{t_chat_rows}}">⤢</button>
      <button onclick="chatSend()">{{t_chat_send}}</button>
+     <button onclick="chatResend()" class="ctlbtn" title="{{t_chat_resend}}">↻ {{t_chat_resend}}</button>
+    </div>
+    <div class="chatrow chatopts">
+     <label>{{t_chat_nature}} <select id="chatNature">
+       <option value="auto">{{t_chat_nature_auto}}</option>
+       <option value="fast">{{t_chat_nature_fast}}</option>
+       <option value="deep">{{t_chat_nature_deep}}</option>
+      </select></label>
+     <label>{{t_chat_provider}} <select id="chatProvider">
+       <option value="auto">{{t_chat_provider_auto}}</option>
+       <option value="cascade">{{t_chat_provider_cascade}}</option>
+       <option value="workai">WorkAI</option>
+       <option value="opencode">OpenCode</option>
+       <option value="ollama">Ollama</option>
+       <option value="webchat">{{t_chat_provider_web}}</option>
+       <option value="deepseek">DeepSeek (web)</option>
+       <option value="qwen">Qwen (web)</option>
+       <option value="gigachat">GigaChat (web)</option>
+       <option value="yandex">Яндекс/Алиса (web)</option>
+       <option value="perplexity">Perplexity (web)</option>
+       <option value="gemini">Gemini (Lab100)</option>
+      </select></label>
+     <label>{{t_chat_model}} <input id="chatModel" list="chatModels" placeholder="{{t_chat_model_ph}}" style="width:150px"></label>
+     <datalist id="chatModels">
+      <option value=""></option>
+      <option value="space-bunny-free">space-bunny-free</option>
+      <option value="mimo-v2.6-flash-free">mimo-v2.6-flash-free</option>
+      <option value="longcat-2.5-preview-free">longcat-2.5-preview-free</option>
+     </datalist>
     </div>
     <div class="chatrow"><label class="attachrow">📎 <input type="file" id="chatFiles" multiple style="width:auto"></label>
-     <span class="hint" id="chatFilesInfo"></span></div>
+     <span class="hint" id="chatFilesInfo"></span>
+     <button id="chatStreamBtn" onclick="streamToggle()" style="display:none" class="ctlbtn">{{t_chat_stream_show}}</button></div>
+    <div id="chatStreamWrap" style="display:none"><pre id="chatStream" style="max-height:160px;overflow:auto;font-size:12px;color:#8b93a7;background:#0b0e13;border:1px solid #262b36;border-radius:8px;padding:8px;margin:4px 0;white-space:pre-wrap"></pre></div>
     <div class="hint" id="chatMsg"></div>
    </div>
   </div>
@@ -347,7 +378,11 @@ const T={
  chatTimer:'{{t_chat_timer}}',chatNoReaction:'{{t_chat_no_reaction}}',chatRetry:'{{t_chat_retry}}',chatLogSent:'{{t_chat_log_sent}}',
  lang:'{{t_lang}}',tabUi:'{{t_tab_ui}}',tabAuto:'{{t_tab_auto}}',tabNet:'{{t_tab_net}}',tabService:'{{t_tab_service}}',fontSize:'{{t_font_size}}',save:'{{t_save}}',
  tHost:'{{t_t_host}}',tPort:'{{t_t_port}}',tRefreshAll:'{{t_t_refresh_all}}',tServiceHint:'{{t_t_service_hint}}',
- upgradeCheck:'{{t_upgrade_check}}',invrTitle:'{{t_invr_title}}',chatRows:'{{t_chat_rows}}'
+ upgradeCheck:'{{t_upgrade_check}}',invrTitle:'{{t_invr_title}}',chatRows:'{{t_chat_rows}}',
+ chatNature:'{{t_chat_nature}}',chatNatureAuto:'{{t_chat_nature_auto}}',chatNatureFast:'{{t_chat_nature_fast}}',chatNatureDeep:'{{t_chat_nature_deep}}',
+ chatProvider:'{{t_chat_provider}}',chatProviderAuto:'{{t_chat_provider_auto}}',chatProviderCascade:'{{t_chat_provider_cascade}}',
+ chatModel:'{{t_chat_model}}',chatModelPh:'{{t_chat_model_ph}}',chatStream:'{{t_chat_stream_show}}',
+ chatResend:'{{t_chat_resend}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 /* --- окна: одно окно, новые вкладки не создаём --- */
@@ -715,20 +750,31 @@ async function openChat(id){
   log.innerHTML='<p class="hint">'+esc(T.chatPick)+'</p>';log._html=null;
   return;
  }
- const msgs=s.messages||[];
- const near=log.scrollHeight-log.scrollTop-log.clientHeight<60;
- /* процесс считается завершённым, когда последнее сообщение — ответ или
-    терминальный статус: тогда счётчики замирают и не тикают дальше */
- const last=msgs[msgs.length-1]||{};
- const terminal=last.role==='assistant'||((last.meta||{}).status&&'ok,error,failed,done,stopped,simulated,unavailable,skipped'.split(',').indexOf(String(last.meta.status))>=0);
- const html=msgs.length?msgs.map(m=>{
-  const role=esc(m.role||'system');
-  const meta=m.meta||{};
-  const isRun=role==='system'&&(meta.status==='start'||meta.status==='running'||meta.status==='queued'||meta.status==='awaiting-approval');
-  const timer=isRun?' <span class="chattimer" data-jid="'+esc(String(m.job_id||''))+'"'+(terminal?' data-frozen="1"':'')+'>0 с</span>':'';
-  return '<div class="msg '+role+'">'+esc(m.text)+timer+
+const msgs=s.messages||[];
+  const near=log.scrollHeight-log.scrollTop-log.clientHeight<60;
+  /* заморозка счётчика — по фактическому статусу задачи, а не по «последнему
+     сообщению сессии»: у задачи, которая завершилась (done/failed/error/…),
+     таймер не должен тикать, даже если после ответа в сессии появились
+     новые сообщения (новый вопрос, системные заметки). */
+  const jobsDone={};
+  j('/api/jobs').then(r=>{
+   (r.jobs||[]).forEach(j=>{jobsDone[j.id]=('done,error,failed,stopped'.split(',').indexOf(j.status)>=0)});
+  }).catch(function(){});
+  const last=msgs[msgs.length-1]||{};
+  const lastTerminal=last.role==='assistant'||((last.meta||{}).status&&'ok,error,failed,done,stopped,simulated,unavailable,skipped'.split(',').indexOf(String(last.meta.status))>=0);
+  const html=msgs.length?msgs.map(m=>{
+   const role=esc(m.role||'system');
+   const meta=m.meta||{};
+   const isRun=role==='system'&&(meta.status==='start'||meta.status==='running'||meta.status==='queued'||meta.status==='awaiting-approval');
+   if(!isRun) return '<div class="msg '+role+'">'+esc(m.text)+
+    (m.at?'<small>'+esc(String(m.at).replace('T',' ').slice(0,19))+'</small>':'')+'</div>';
+   const myMetaTerminal=(meta.status&&'ok,error,failed,done,stopped,simulated,unavailable,skipped'.split(',').indexOf(String(meta.status))>=0);
+   const jid=String(m.job_id||'');
+   const frozen=myMetaTerminal||lastTerminal||(jid&&jobsDone[jid]);
+   const timer=' <span class="chattimer" data-jid="'+esc(jid)+'"'+(frozen?' data-frozen="1"':'')+'>0 с</span>';
+   return '<div class="msg '+role+'">'+esc(m.text)+timer+
    (m.at?'<small>'+esc(String(m.at).replace('T',' ').slice(0,19))+'</small>':'')+'</div>';
- }).join(''):'<p class="hint">'+esc(T.chatNone)+'</p>';
+  }).join(''):'<p class="hint">'+esc(T.chatNone)+'</p>';
  if(log._html!==html){
   log._html=html;log.innerHTML=html;
   log.scrollTop=log.scrollHeight;
@@ -851,10 +897,38 @@ async function realChatSend(text,inp,msg,files){
  if(attachments.length) await appendChatNote('[вложения: '+attachments.join(', ')+']','system');
  await openChat(chatCurrent);
  if(msg) msg.textContent=T.chatWait;
- const body={schema:'invr.task/1',goal:text,session:chatCurrent,
+const nature=document.getElementById('chatNature')?.value||'auto';
+  const prov=document.getElementById('chatProvider')?.value||'auto';
+  const model=(document.getElementById('chatModel')?.value||'').trim();
+  /* веб-провайдеры уходят в web_chat (браузерные чаты) с именем чата */
+  const webMap={deepseek:'deepseek',qwen:'qwen',gigachat:'gigachat',yandex:'yandex',perplexity:'perplexity'};
+  const isWeb=webMap[prov]!==undefined;
+  const body={schema:'invr.task/1',goal:text,session:chatCurrent,
    capabilities:['answer'],
    constraints:{synthesize:false,timeout_s:480},inputs:{provider:'cascade'}};
- if(attachments.length) body.inputs.attachments=attachments;
+  /* веб-провайдеры идут через web_chat-адаптер (браузерные чаты) */
+  if(isWeb){
+   body.capabilities=['web-chat'];
+   body.inputs={provider:'web_chat',chats:[webMap[prov]]};
+   body.constraints.timeout_s=150;
+  }
+  /* поток размышлений: файл, куда каскад пишет этапы/порции в реальном времени */
+  if(!isWeb) body.inputs.stream_file=(jobIdCounter++)+'.txt';
+  /* характер запроса: auto | fast | deep — влияет на timeout и число участников */
+  if(!isWeb&&nature==='deep'){
+   body.constraints.timeout_s=900;
+   body.constraints.synthesize=true;
+   body.inputs.synthesize_count=3;
+  }else if(!isWeb&&nature==='fast'){
+   body.constraints.timeout_s=120;
+  }
+  /* явный провайдер/модель из панели выбора (по усмотрению оркестратора = auto) */
+  if(prov!=='auto'&&!isWeb) body.inputs.provider=prov;
+  if(model&&!isWeb) body.inputs.model=model;
+  if(attachments.length) body.inputs.attachments=attachments;
+  /* писать в чат, кому передан запрос и какой провайдер/группа выбран */
+  const chosenProv=(prov&&prov!=='auto')?prov:'по усмотрению оркестратора';
+  await appendChatNote('→ запрос передан: '+(model?('модель '+model+', '):'')+chosenProv+(nature!=='auto'?(' (характер: '+nature+')'):''),'system');
  const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const d=await r.json();
  if(!d.ok){ if(msg) msg.textContent=T.err+(d.error||''); return; }
@@ -866,7 +940,11 @@ async function realChatSend(text,inp,msg,files){
  chatRun();
  startChatTimers();
 }
-let jobTimer=null,jobSeq=0,retryCount=0,chatUnit=null;
+let jobTimer=null,jobSeq=0,retryCount=0,chatUnit=null,jobIdCounter=0;
+document.addEventListener('click',function(e){
+ const stop=e.target.closest&&e.target.closest('[data-stop]');
+ if(stop&&stop.dataset.stop){stopJob(stop.dataset.stop);e.preventDefault();return}
+});
 const JOBUI={id:null,seq:0,started:0,status:'',running:false};
 function clearJobProgress(){
  if(jobTimer){clearInterval(jobTimer);jobTimer=null}
@@ -878,6 +956,75 @@ function freezeJobTimer(){
  const el=document.querySelector('#chatMsg .jobtimer');
  if(el) el.textContent=Math.max(0,Math.floor((Date.now()-JOBUI.started)/1000))+' с';
 }
+async function stopJob(id){
+ try{await fetch('/api/jobs/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});}catch(e){}
+ showJobProgress(id,'');
+}
+async function showStream(id){
+ try{
+  const r=await j('/api/jobs/stream?id='+encodeURIComponent(id));
+  const box=document.getElementById('chatStream');
+  if(!box) return;
+  const lines=(r.lines||[]).join('\\n');
+  if(box._text!==lines){
+   box._text=lines;
+   box.textContent=lines||'поток пока пуст…';
+  }
+ }catch(e){}
+}
+function streamToggle(){
+ const box=document.getElementById('chatStreamWrap');
+ if(!box) return;
+ const on=box.style.display!=='none';
+ box.style.display=on?'none':'block';
+ const b=document.getElementById('chatStreamBtn');
+ if(b) b.textContent=on?'Показать поток ▾':'Скрыть поток ▴';
+}
+async function loadStreamTick(jobId){
+ if(!jobId) return;
+ await showStream(jobId);
+}
+function startStreamTick(jobId){
+ if(window.__streamTick) clearInterval(window.__streamTick);
+ if(!jobId) return;
+ window.__streamTick=setInterval(()=>showStream(jobId),1200);
+}
+async function resumeJob(){
+ if(!chatCurrent) return;
+ const s=await j('/api/sessions/get?id='+encodeURIComponent(chatCurrent));
+ if(!s||!s.messages) return;
+ /* повторная отправка последнего вопроса пользователя тем же маршрутом */
+ for(let i=s.messages.length-1;i>=0;i--){
+  const m=s.messages[i];
+  if(m.role==='user'){
+   const inp=document.getElementById('chatInput');
+   if(inp) inp.value=m.text;
+   chatSend();
+   return;
+  }
+ }
+}
+function chatResend(){
+ /* досылка запроса: если строка пуста — берём последний вопрос из сессии,
+    иначе дополняем его текущим текстом и отправляем заново */
+ const inp=document.getElementById('chatInput');
+ const extra=inp?(inp.value.trim()):'';
+ if(!chatCurrent) return;
+ j('/api/sessions/get?id='+encodeURIComponent(chatCurrent)).then(s=>{
+  let lastUser='';
+  if(s&&s.messages){
+   for(let i=s.messages.length-1;i>=0;i--){
+    if(s.messages[i].role==='user'){lastUser=s.messages[i].text;break;}
+   }
+  }
+  const text=lastUser+(extra?('\\n\\n— Дополнение:\\n'+extra):'');
+  if(inp) inp.value=text;
+  chatSend();
+ });
+}
+function jobCtl(id){
+ return ' <button class="ctlbtn" data-stop="'+esc(id)+'" title="остановить обработку">⏹</button>';
+}
 function showJobProgress(id,goal){
  const box=document.getElementById('chatMsg');
  if(!box) return;
@@ -886,6 +1033,10 @@ function showJobProgress(id,goal){
  const seq=jobSeq=JOBUI.seq;
  retryCount=0;
  const started=Date.now();
+ /* показываем блок потока размышлений (если задача идёт) */
+ const sbtn=document.getElementById('chatStreamBtn');
+ if(sbtn){sbtn.style.display='';sbtn.textContent=T.chatStream}
+ startStreamTick(id);
  const render=async()=>{
   if(seq!==JOBUI.seq) return;
   let jj=null;
@@ -896,30 +1047,44 @@ function showJobProgress(id,goal){
   const elapsed=Math.floor((Date.now()-started)/1000);
   const st=jj.status||'running';
   const step=jj.last_step||(st==='running'?'выполняется…':st);
+  const ctl=jobCtl(id);
   if(st==='done'){
    clearInterval(jobTimer);jobTimer=null;JOBUI.running=false;JOBUI.status='done';
+   if(window.__streamTick){clearInterval(window.__streamTick);window.__streamTick=null}
    const ans=jj.answer||'(без текста ответа)';
-   box.innerHTML='<div class="jobdone">✅ '+esc(ans)+'</div>';
+   const models=(jj.models&&jj.models.length)?(' ['+jj.models.join(', ')+']'):'';
+   box.innerHTML='<div class="jobdone">✅ '+esc(ans)+'<br><small class="hint">ответил: '+esc(models||'—')+'</small></div>';
    await openChat(chatCurrent);
    chatRun();
    return;
   }
   if(st==='failed'||st==='error'||st==='stopped'){
    clearInterval(jobTimer);jobTimer=null;JOBUI.running=false;JOBUI.status=st;
+   if(window.__streamTick){clearInterval(window.__streamTick);window.__streamTick=null}
    const err=jj.error||(st==='stopped'?'остановлена оператором':'задача завершилась с ошибкой');
-   box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (jj.answer?'<br><br>'+esc(jj.answer):'')+'</div>';
+   const ctl2=(st==='stopped')?' <button class="ctlbtn" onclick="resumeJob()" title="продолжить обработку">▶ Продолжить</button>':'';
+   box.innerHTML='<div class="jobfail">⛔ отказ: '+esc(String(err))+ (jj.answer?'<br><br>'+esc(jj.answer):'')+ctl2+'</div>';
    await openChat(chatCurrent);
    chatRun();
    return;
   }
-  /* нет реакции дольше 60 секунд — пробуем повторный запрос */
+  if(st==='awaiting-approval'){
+   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">ожидает подтверждения</span><span class="jobtimer">'+elapsed+' с</span>'+ctl+'</div>';
+   return;
+  }
+  if(st==='queued'){
+   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">в очереди…</span><span class="jobtimer">'+elapsed+' с</span>'+ctl+'</div>';
+   return;
+  }
+  /* нет реакции дольше 60 секунд — пробуем повторный запрос (до 3 раз),
+     затем передаём лог сессии нейросети на анализ */
   if(elapsed>=60){
    if(retryCount<3){
     retryCount++;
     clearInterval(jobTimer);jobTimer=null;
     await appendChatNote(T.chatNoReaction);
     await appendChatNote(T.chatRetry.replace('{n}',String(retryCount)).replace('{max}','3'));
-    box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(T.chatNoReaction)+'</span><span class="jobtimer">'+elapsed+' с</span></div>';
+    box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(T.chatNoReaction)+'</span><span class="jobtimer">'+elapsed+' с</span>'+ctl+'</div>';
     const body={schema:'invr.task/1',goal:goal,session:chatCurrent};
     try{
      const rr=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -934,21 +1099,12 @@ function showJobProgress(id,goal){
     }catch(e){}
     return;
    }
-   /* три повтора без результата — передаём лог на анализ нейросети */
    clearInterval(jobTimer);jobTimer=null;
    box.innerHTML='<div class="jobfail">⛔ '+esc(T.chatLogSent)+'</div>';
    await analyzeChatLog(chatCurrent);
    return;
   }
-  if(st==='awaiting-approval'){
-   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">ожидает подтверждения</span><span class="jobtimer">'+elapsed+' с</span></div>';
-   return;
-  }
-  if(st==='queued'){
-   box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">в очереди…</span><span class="jobtimer">'+elapsed+' с</span></div>';
-   return;
-  }
-  box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(step)+'</span><span class="jobtimer">'+elapsed+' с</span></div>';
+  box.innerHTML='<div class="jobrun"><span class="spinner"></span><span class="jobstep">'+esc(step)+'</span><span class="jobtimer">'+elapsed+' с</span>'+ctl+'</div>';
  };
  render();
  jobTimer=setInterval(render,1500);
@@ -1412,6 +1568,18 @@ def _page(lang: str) -> str:
         "t_chat_rows": tr("web.chat_rows"),
         "t_invr_title": tr("web.invr_title"),
         "t_upgrade_check": tr("web.upgrade_check"),
+        "t_chat_nature": tr("web.chat_nature"),
+        "t_chat_nature_auto": tr("web.chat_nature_auto"),
+        "t_chat_nature_fast": tr("web.chat_nature_fast"),
+        "t_chat_nature_deep": tr("web.chat_nature_deep"),
+        "t_chat_provider": tr("web.chat_provider"),
+        "t_chat_provider_auto": tr("web.chat_provider_auto"),
+        "t_chat_provider_cascade": tr("web.chat_provider_cascade"),
+        "t_chat_provider_web": tr("web.chat_provider_web"),
+        "t_chat_model": tr("web.chat_model"),
+        "t_chat_model_ph": tr("web.chat_model_ph"),
+        "t_chat_stream_show": tr("web.chat_stream_show"),
+        "t_chat_resend": tr("web.chat_resend"),
         "t_chat_del": tr("web.chat_del"),
         "t_chat_up": tr("web.chat_up"),
         "t_chat_down": tr("web.chat_down"),
@@ -1651,6 +1819,21 @@ def _handler_class():
                 if job is None:
                     return self._send({"error": "not found"}, status=404)
                 return self._send(job)
+            if path == "/api/jobs/stream":
+                job = _jobs().get(query.get("id", [""])[0])
+                if job is None:
+                    return self._send({"error": "not found"}, status=404)
+                stream_path = job.get("stream")
+                lines: list[str] = []
+                if stream_path:
+                    try:
+                        sf = Path(stream_path)
+                        if sf.is_file():
+                            lines = sf.read_text(encoding="utf-8", errors="replace").splitlines()
+                    except OSError:
+                        pass
+                return self._send({"id": job.get("id"), "stream": stream_path,
+                                   "lines": lines[-200:]})
             if path == "/api/sessions":
                 return self._send({"sessions": SessionStore(root).list()})
             if path == "/api/sessions/get":
@@ -1694,6 +1877,12 @@ def _handler_class():
                 return self._send({"ok": True, "job": _jobs().summary(job)})
             if path == "/api/jobs/approve":
                 job = _jobs().approve(data.get("id"), ok=bool(data.get("ok", True)))
+                return self._send({
+                    "ok": job is not None,
+                    "job": _jobs().summary(job) if job else None,
+                }, status=200 if job else 404)
+            if path == "/api/jobs/stop":
+                job = _jobs().stop(str(data.get("id") or ""))
                 return self._send({
                     "ok": job is not None,
                     "job": _jobs().summary(job) if job else None,

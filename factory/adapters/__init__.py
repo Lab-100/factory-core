@@ -7,6 +7,7 @@ from .invr_tool import InvrToolAdapter
 from .lab100 import Lab100Adapter
 from .llm_local import LocalLlmAdapter
 from .region import RegionAdapter
+from .unitool import UnitoolAdapter
 from .web_chat import WebChatAdapter
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "Lab100Adapter",
     "LocalLlmAdapter",
     "RegionAdapter",
+    "UnitoolAdapter",
     "WebChatAdapter",
     "build_adapters",
 ]
@@ -25,6 +27,7 @@ __all__ = [
 def build_adapters(settings) -> dict[str, Adapter]:
     adapters: list[Adapter] = [
         Lab100Adapter(settings),
+        UnitoolAdapter(settings),
         InvrToolAdapter(settings),
         LocalLlmAdapter(settings),
         ExternalAgentAdapter(settings),

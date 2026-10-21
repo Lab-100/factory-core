@@ -10,6 +10,7 @@
 | Склад инструментов | версионированные инструменты + шимы | `Lab-100/scripts-tools` |
 | Монтаж/наладка | развёртывание инфраструктуры | `Lab-100/devstation-deploy` |
 | Цех исполнителей (ИИ) | пул агентов, компетенции, квоты | `Lab-100/Lab100` |
+| Единый ИИ-инструмент | поиск + свободные модели + шлюз LiteLLM за одним интерфейсом | `Lab-100/unitool` |
 | Логистика/доступ | смена региона для заблокированных ресурсов | `Lab-100/region-spoof` |
 
 ## Ключевые принципы
@@ -34,7 +35,7 @@
 Диспетчер (factory.dispatch)
    │ домены → план → исполнители → артефакты
    ▼
-Адаптеры: lab100 (пул ИИ) · invr (шимы) · llm_local (ollama) · region (region-spoof)
+Адаптеры: unitool (единый ИИ-инструмент) · lab100 (пул ИИ) · invr (шимы) · llm_local (ollama) · region (region-spoof)
         │
         ▼
 Единый журнал + каталог артефактов
@@ -53,7 +54,7 @@ factory-core/
     settings.py  domains.py  task.py  ledger.py  dispatch.py  context.py
     inventory.py  quotas.py  watchdog.py  jobs.py  catalog.py  doctor.py
     arsenal.py  nodes.py  supervisor.py  logs.py
-    adapters/    base.py lab100.py invr_tool.py llm_local.py region.py
+    adapters/    base.py unitool.py lab100.py invr_tool.py llm_local.py region.py
     integrations/ metrics.py infra.py backup.py
     ui/          cli.py web.py tray.py
     auth.py  release.py  i18n.py  regionlib.py  paths.py  tomlw.py  tomlpatch.py
@@ -194,6 +195,31 @@ Cline подключается как внешний ИИ-провайдер ч�
   Из 7 провайдеров с free-моделями («(free)» в названии) реально работает
   провайдер `cline`; остальные (`aihubmix`, `bothub`, `kilo`, `openrouter`,
   `orcarouter`, `tokenrouter`) требуют API-ключей или недоступны.
+
+## Адаптер unitool (единый ИИ-инструмент)
+
+`unitool` (`Lab-100/unitool`) объединяет три компонента за одним интерфейсом:
+веб-поиск и скрейпинг (Lab100), свободные модели (MultiTool) и шлюз пулов
+`llm-*` (ai-gateway/LiteLLM). Фабрика управляет им через адаптер
+`factory/adapters/unitool.py`, который вызывает `python -m unitool.cli …`.
+
+```powershell
+python -m factory doctor                 # адаптер unitool в списке исполнителей
+python -m factory providers               # unitool в каталоге провайдеров
+```
+
+Сопоставление действий фабрики на команды CLI:
+
+| Действие фабрики | Команда unitool |
+|---|---|
+| `search` | `unitool search <запрос> [--limit N] [--provider P]` |
+| `scrape` | `unitool scrape <url>` |
+| `ask`, `research` | `unitool ask <текст> [--engine E] [--model M]` |
+| `chat` | `unitool ask <текст>` |
+| `status` / `models` / `doctor` | `unitool status` / `models` / `doctor` |
+
+Маршрутизация компетенции на unitool включается одной строкой в `[routing]`,
+например `answer = "unitool"` или `web-search = "unitool:search"`.
 
 ## Инвентаризация, квоты, супервизия и единый журнал
 

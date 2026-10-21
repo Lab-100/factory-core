@@ -71,7 +71,8 @@
 | **5.8** | Вложения и экспорт | ✅ | вложения — `factory/attachments.py` (`state/uploads/<scope>/`), загрузка `POST /api/upload` (multipart), поле `inputs.attachments`; экспорт — `factory/export.py`, `factory export <job\|session> <id>` (`md`/`json`/`zip`), `/api/export`; кнопки в дашборде |
 | **5.9** | Проектные настройки | ✅ | `factory/projects.py` (поиск `.factory/settings.toml`/`factory.toml` вверх, глубокое слияние с глобальными), `factory project status|init|show`, `/api/project`, раздел дашборда |
 | **5.10** | Оконное приложение и установщик | ✅ | `factory/ui/desktop.py` (pywebview, опция `[desktop]`, `factory ui --mode desktop`); установщик Inno Setup `scripts/factory.iss` + сборка `scripts/make_installer.ps1` (ярлыки, PATH, автозапуск, «Программы и компоненты», штатное удаление) |
-| **5.11** | Внешние ИИ-провайдеры (переключатель) | ✅ | `factory/providers.py` (каталог opencode/claude-code/cursor/windsurf/void/zen/workai/multitool, поимённое включение), адаптер `external_agent`, `factory providers list|check|enable|disable`, `/api/providers`, секция дашборда, `routing.<компетенция>` и `providers.auto_route` |
+| **5.11** | Внешние ИИ-провайдеры (переключатель) | ✅ | `factory/providers.py` (каталог opencode/claude-code/cursor/windsurf/void/zen/workai/multitool/unitool, поимённое включение), адаптер `external_agent`, `factory providers list|check|enable|disable`, `/api/providers`, секция дашборда, `routing.<компетенция>` и `providers.auto_route` |
+| **5.12** | Единый ИИ-инструмент `unitool` | ✅ | `Lab-100/unitool` (поиск через Lab100 + свободные модели через MultiTool + шлюз LiteLLM за одним каскадом); адаптер `factory/adapters/unitool.py`, каталог провайдеров (`providers.unitool`), маршрутизация `routing.<компетенция> = "unitool"`; MCP-подключение в opencode (`unitool`) заменило отдельные MCP `lab100` и `multitool` |
 
 ## Публикация (Windows + GitHub)
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from factory.adapters.invr_tool import InvrToolAdapter
 from factory.adapters.lab100 import Lab100Adapter
 from factory.adapters.llm_local import LocalLlmAdapter
+from factory.adapters.unitool import UnitoolAdapter
 from factory.settings import Settings
 
 
@@ -215,6 +216,79 @@ class LocalLlmResilienceTest(unittest.TestCase):
         res = Down(self.settings).run("chat", {"prompt": "привет"})
         self.assertFalse(res.ok)
         self.assertIn("Ollama недоступна", res.error)
+
+
+class UnitoolCommandTest(unittest.TestCase):
+    """Сопоставление действий фабрики на команды CLI unitool.
+
+    unitool — единый интегральный инструмент (поиск через Lab100, свободные
+    модели через MultiTool, шлюз LiteLLM). У его CLI нет подкоманд `research`
+    и `chat`: оба действия идут в `ask`.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        (root / "config").mkdir()
+        settings_path = root / "config" / "settings.toml"
+        settings_path.write_text("", encoding="utf-8")
+        self.settings = Settings(settings_path, {"adapters": {"unitool_python": "python"}})
+        self.adapter = UnitoolAdapter(self.settings)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_research_and_chat_map_to_ask(self) -> None:
+        for action in ("ask", "research", "chat"):
+            argv = self.adapter._command(action, {"prompt": "вопрос"})
+            self.assertIn("ask", argv)
+            self.assertNotIn("research", argv)
+            self.assertNotIn("chat", argv)
+            self.assertIn("вопрос", argv)
+
+    def test_search_flags(self) -> None:
+        argv = self.adapter._command("search", {"query": "q", "limit": 3, "provider": "exa"})
+        self.assertIn("search", argv)
+        self.assertIn("--limit", argv)
+        self.assertIn("3", argv)
+        self.assertIn("--provider", argv)
+        self.assertIn("exa", argv)
+
+    def test_scrape_argument(self) -> None:
+        argv = self.adapter._command("scrape", {"url": "http://example.org"})
+        self.assertIn("scrape", argv)
+        self.assertEqual(argv[-1], "http://example.org")
+
+    def test_service_commands_without_arguments(self) -> None:
+        for action in ("status", "models", "doctor"):
+            argv = self.adapter._command(action, {})
+            self.assertEqual(argv[-1], action)
+            self.assertNotIn(action, argv[:-1])
+
+    def test_command_prefix_is_python_module(self) -> None:
+        """По умолчанию адаптер зовёт `python -m unitool.cli …`."""
+        argv = self.adapter._command("search", {"query": "q"})
+        self.assertEqual(argv[:4], ["python", "-m", "unitool.cli", "search"])
+
+    def test_engine_and_model_flags(self) -> None:
+        argv = self.adapter._command(
+            "ask", {"prompt": "q", "engine": "litellm", "model": "llm-fast"})
+        self.assertIn("--engine", argv)
+        self.assertIn("litellm", argv)
+        self.assertIn("--model", argv)
+        self.assertIn("llm-fast", argv)
+
+    def test_dry_run_reports_argv(self) -> None:
+        result = self.adapter.run("search", {"query": "q"}, dry_run=True)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.status, "simulated")
+        self.assertIn("search", result.output["argv"])
+
+    def test_health_reports_adapter(self) -> None:
+        health = self.adapter.health()
+        self.assertEqual(health["adapter"], "unitool")
+        self.assertIn("available", health)
+        self.assertIn("python", health)
 
 
 if __name__ == "__main__":

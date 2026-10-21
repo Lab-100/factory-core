@@ -83,6 +83,17 @@ PROVIDERS: dict[str, dict] = {
         "paths": ["~/.multitool"],
         "run": ["multitool", "run"],
     },
+    "unitool": {
+        "title": "Unitool (единый инструмент: поиск + свободные модели + шлюз LiteLLM)",
+        # Скрипт `unitool` ставится вместе с пакетом (pip install -e .) и должен
+        # быть в PATH; иначе используется адаптер factory/adapters/unitool.py.
+        "commands": ["unitool"],
+        "paths": ["~/Documents/Lab-100/unitool"],
+        # CLI unitool: подкоманды status|search|scrape|ask|models|doctor.
+        # Промпт передаётся аргументом, ответ печатается в stdout.
+        "run": ["unitool", "ask"],
+        "prompt_arg": True,
+    },
     "pollinations": {
         "title": "Pollinations",
         "commands": ["pollinations-bridge"],

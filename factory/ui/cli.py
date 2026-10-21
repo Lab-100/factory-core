@@ -353,6 +353,18 @@ def _cmd_capabilities(args) -> int:
     return 0
 
 
+def _cmd_supervise_task(args) -> int:
+    """Статус/переключение авто-надзора (задача планировщика FactoryMicromonitor)."""
+    from .. import scheduled
+
+    if args.action == "status":
+        print(json.dumps(scheduled.status(), ensure_ascii=False, indent=2))
+        return 0
+    result = scheduled.toggle()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 1
+
+
 def _cmd_upgrade(args) -> int:
     """Проверка апгрейда всей системы (фабрика + INVR) с аддитивным бэкапом."""
     from ..upgrade import check
@@ -1280,6 +1292,12 @@ def build_parser(lang: str = "ru") -> argparse.ArgumentParser:
     p_capabilities.add_argument("--json", action="store_true",
                                 help=t(lang, "arg.capabilities.json"))
     p_capabilities.set_defaults(func=_cmd_capabilities)
+
+    p_supertask = sub.add_parser("supervise-task", help="авто-надзор: статус/переключить"
+                                                       " (FactoryMicromonitor)")
+    p_supertask.add_argument("action", nargs="?", default="status",
+                             choices=["status", "toggle"])
+    p_supertask.set_defaults(func=_cmd_supervise_task)
 
     p_upgrade = sub.add_parser("upgrade", help=t(lang, "cmd.upgrade"))
     p_upgrade.add_argument("--backup", action="store_true",

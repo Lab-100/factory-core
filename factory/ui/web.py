@@ -387,7 +387,8 @@ const T={
  chatNature:'{{t_chat_nature}}',chatNatureAuto:'{{t_chat_nature_auto}}',chatNatureFast:'{{t_chat_nature_fast}}',chatNatureDeep:'{{t_chat_nature_deep}}',
  chatProvider:'{{t_chat_provider}}',chatProviderAuto:'{{t_chat_provider_auto}}',chatProviderCascade:'{{t_chat_provider_cascade}}',
  chatModel:'{{t_chat_model}}',chatModelPh:'{{t_chat_model_ph}}',chatStream:'{{t_chat_stream_show}}',
- chatResend:'{{t_chat_resend}}'
+ chatResend:'{{t_chat_resend}}',
+ superviseOn:'{{t_supervise_on}}',superviseOff:'{{t_supervise_off}}'
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 /* --- окна: одно окно, новые вкладки не создаём --- */
@@ -581,6 +582,8 @@ async function load(){
     ' <button onclick="showLogs(&#39;factory&#39;)">'+esc(T.logsPh||'Журналы')+'</button>'+
     ' <button onclick="checkUpgrade()">'+esc(T.upgradeCheck)+'</button></p>'+
     '<p class="hint" id="upgradeMsg"></p>'+
+    '<p><button onclick="toggleSupervise()" id="superviseBtn">'+esc(T.superviseToggle)+'</button>'+
+    ' <span class="hint" id="superviseStatus"></span></p>'+
     '<p class="hint">'+esc(T.tServiceHint)+'</p></div>');
  const sel=document.getElementById('langSel');
  if(sel) sel.value=(s.lang||'ru');
@@ -641,6 +644,25 @@ async function checkUpgrade(){
   if(msg) msg.textContent=(d&&d.text)||JSON.stringify(d||{});
  }catch(e){ if(msg) msg.textContent='ошибка: '+e; }
 }
+async function loadSuperviseStatus(){
+ try{
+  const r=await j('/api/supervise/scheduled');
+  const st=r||{};
+  const btn=document.getElementById('superviseBtn');
+  const stx=document.getElementById('superviseStatus');
+  if(btn) btn.textContent=st.enabled?T.superviseOff:T.superviseOn;
+  if(stx) stx.textContent=(st.enabled?'авто-надзор включён':'авто-надзор выключен')+(st.running?' (работает)':'');
+ }catch(e){}
+}
+async function toggleSupervise(){
+ try{
+  const r=await fetch('/api/supervise/scheduled',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const d=await r.json();
+  loadSuperviseStatus();
+  const stx=document.getElementById('superviseStatus');
+  if(stx) stx.textContent=(d&&d.status&&d.status.enabled?'авто-надзор включён':'авто-надзор выключен')+(d&&d.error?(' ('+d.error+')'):'');
+ }catch(e){}
+}
 async function dropUpgradeIcon(){
  try{
   const r=await j('/api/upgrade');
@@ -654,6 +676,7 @@ async function dropUpgradeIcon(){
 function refreshAll(){
  load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();
 loadMonitoring();loadCatalog();loadCapabilities();loadDoctor();loadArsenal();loadLogs();
+ loadSuperviseStatus();
  }
 async function openSession(id){
  currentSession=id;
@@ -1503,6 +1526,7 @@ async function shotGraph(){
 }
 load();loadJobs();loadSessions();loadProject();loadProviders();loadQuotas();loadMonitoring();loadCatalog();loadCapabilities();loadDoctor();loadArsenal();loadLogs();
 dropUpgradeIcon();
+loadSuperviseStatus();
 chatTab(localStorage.getItem('factory.view')==='chat'?'chat':'board');
 setInterval(loadJobs,2000);
 setInterval(function(){loadArsenal();loadMonitoring();},5000);
@@ -1621,6 +1645,8 @@ def _page(lang: str) -> str:
         "t_chat_stream_show": tr("web.chat_stream_show"),
         "t_chat_resend": tr("web.chat_resend"),
         "t_chat_repair": tr("web.chat_repair"),
+        "t_supervise_on": tr("web.supervise_on"),
+        "t_supervise_off": tr("web.supervise_off"),
         "t_chat_del": tr("web.chat_del"),
         "t_chat_up": tr("web.chat_up"),
         "t_chat_down": tr("web.chat_down"),
@@ -1827,6 +1853,9 @@ def _handler_class():
             if path == "/api/upgrade":
                 from ..upgrade import check
                 return self._send(check(settings, backup=False))
+            if path == "/api/supervise/scheduled":
+                from .. import scheduled
+                return self._send(scheduled.status())
             if path == "/api/catalog/show":
                 from .. import catalog
                 text = catalog.report(settings, query.get("path", [""])[0])
@@ -1969,6 +1998,10 @@ def _handler_class():
                 result = check(post_settings, backup=bool(data.get("backup")),
                                items=str(data.get("items") or ""))
                 return self._send(result, status=200 if result.get("ok", True) else 400)
+            if path == "/api/supervise/scheduled":
+                from .. import scheduled
+                result = scheduled.toggle()
+                return self._send(result, status=200 if result.get("ok") else 400)
             return self._send({"error": "not found"}, status=404)
 
     return Handler

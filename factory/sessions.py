@@ -65,16 +65,38 @@ class SessionStore:
         data.setdefault("messages", [])
         return data
 
+    def _latest_updated(self) -> str:
+        """Самая свежая метка обновления среди сессий хранилища."""
+        latest = ""
+        if not self.dir.exists():
+            return latest
+        for path in self.dir.glob("*.json"):
+            data = self._read(path.stem)
+            if not data:
+                continue
+            stamp = str(data.get("updated") or "")
+            if stamp > latest:
+                latest = stamp
+        return latest
+
+    def _next_stamp(self) -> str:
+        """Метка времени, строго большая любой прежней в этом хранилище.
+
+        Часы Windows идут крупным шагом (~15 мс), и две записи подряд могли
+        получить одинаковую метку — порядок списка сессий (сортировка по
+        ``updated``) становился случайным. Сдвиг вперёд сохраняет порядок
+        записи однозначным.
+        """
+        now = _now()
+        latest = self._latest_updated()
+        if latest and now <= latest:
+            return _bump(latest)
+        return now
+
     def _write(self, session: dict) -> dict:
         self.dir.mkdir(parents=True, exist_ok=True)
         session["schema"] = SCHEMA
-        session["updated"] = _now()
-        # Метка обновления строго возрастает — иначе при крупном шаге часов
-        # порядок списка сессий (сортировка по updated) был бы случайным.
-        previous = self._read(str(session["id"])) or {}
-        earlier = str(previous.get("updated") or "")
-        if earlier and str(session["updated"]) <= earlier:
-            session["updated"] = _bump(earlier)
+        session["updated"] = self._next_stamp()
         self._path(session["id"]).write_text(
             json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
         return session

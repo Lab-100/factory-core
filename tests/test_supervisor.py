@@ -102,7 +102,8 @@ class SupervisorTest(unittest.TestCase):
     def test_command_expands_environment_and_home(self) -> None:
         """Команды запуска служб раскрывают %VAR% и «~» (переносимые пути)."""
         os.environ["UNITOOL_TEST_DIR"] = r"C:\some\dir"
-        expanded = _expand_command(["node", "%UNITOOL_TEST_DIR%\\server.mjs", "~\\x"])
+        # «~/» — форма, которую понимает expanduser и на Windows, и на POSIX
+        expanded = _expand_command(["node", "%UNITOOL_TEST_DIR%\\server.mjs", "~/x"])
         self.assertEqual(expanded[1], r"C:\some\dir\server.mjs")
         self.assertNotIn("~", expanded[2])
         self.assertTrue(expanded[2].endswith("x"))

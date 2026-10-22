@@ -255,7 +255,12 @@ class StatusTest(NetsuiteBase):
         netsuite.set_param(self.settings, "ai-gateway", "listen_port", str(FREE_PORT))
         netsuite.set_param(self.settings, "my-openai-gemini", "root", missing)
         netsuite.set_param(self.settings, "my-openai-gemini", "local_port", str(FREE_PORT))
+        # ai-sni-proxy: применяется через hosts-файл, а не корень. Задаём
+        # несуществующий hosts_path, чтобы 'applied' детерминированно был False
+        # и тест не зависел от реального системного hosts на машине.
         netsuite.set_param(self.settings, "ai-sni-proxy", "root", missing)
+        netsuite.set_param(self.settings, "ai-sni-proxy", "hosts_path",
+                           str(self.root / "нет-hosts"))
         data = netsuite.status(self.settings)
         self.assertEqual(len(data["tools"]), 4)
         for row in data["tools"]:
